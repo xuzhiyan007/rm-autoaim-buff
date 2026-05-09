@@ -357,7 +357,7 @@ private:
             }
             
             // 设置 GPU 推理配置（可选优化）
-            core.set_property("GPU", ov::hint::inference_precision(ov::element::f16));
+            //core.set_property("GPU", ov::hint::inference_precision(ov::element::f16));
 
             ov::hint::PerformanceMode perf_mode = ov::hint::PerformanceMode::LATENCY;
             if (performance_mode_ == "throughput") {
