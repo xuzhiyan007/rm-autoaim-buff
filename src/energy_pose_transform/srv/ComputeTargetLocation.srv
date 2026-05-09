@@ -1,0 +1,7 @@
+# Service to compute target location for energy mechanism
+# Input: delta_mu rotation angle
+float64 delta_mu
+---
+# Output: final 3D coordinate P_final
+geometry_msgs/Point p_final
+bool success

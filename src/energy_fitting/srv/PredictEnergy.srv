@@ -1,0 +1,7 @@
+# Service to predict energy mechanism rotation
+# Input: time delta for prediction
+float64 dt
+---
+# Output: angular difference (delta_mu) between predicted and current angle
+float64 delta_mu
+bool success

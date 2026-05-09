@@ -1,0 +1,18 @@
+# Coordinate Transformation Parameters
+# 坐标变换参数配置文件
+
+# Forward transformation: Camera (A) -> Yaw Center (C)
+# 正向变换：相机坐标系A -> yaw轴中心坐标系C
+# Translation from A to B (pitch axis center)
+translation:
+  x1: 0.0616  # x direction offset (m)
+  y1: -0.05235  # y direction offset (m)
+  z1: 0.0625  # z direction offset (m)
+
+# Inverse transformation: Yaw Center (C) -> Barrel (A')
+# 逆变换：yaw轴中心坐标系C -> 枪管坐标系A'
+# Translation from barrel to B (pitch axis center)
+inverse_translation:
+  x1_prime: 0.0  # x direction offset (m)
+  y1_prime: 0.0  # y direction offset (m)
+  z1_prime: 0.0  # z direction offset (m)
