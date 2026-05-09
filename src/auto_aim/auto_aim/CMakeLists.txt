@@ -16,10 +16,8 @@ find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(tools REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(yaml-cpp REQUIRED)
-include_directories(
-  ${YAML_CPP_INCLUDE_DIR}
-)
+find_package(yaml-cpp REQUIRED CONFIG PATHS /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp NO_DEFAULT_PATH)
+
 
 
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -47,14 +45,17 @@ add_library(auto_aim SHARED
 )
 
 target_link_libraries(auto_aim
-  tools::tools
-  rclcpp::rclcpp
-  ${YAML_CPP_LIBRARIES}
+  PUBLIC
+    tools::tools
+    rclcpp::rclcpp
+    openvino::runtime
+  PRIVATE
+    yaml-cpp::yaml-cpp
+    fmt::fmt
+    CURL::libcurl
+    TIFF::TIFF
+    tinympcstatic
 )
-
-target_link_libraries(auto_aim fmt::fmt CURL::libcurl TIFF::TIFF)
-
-target_link_libraries(auto_aim openvino::runtime tinympcstatic)
 target_include_directories(auto_aim
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
