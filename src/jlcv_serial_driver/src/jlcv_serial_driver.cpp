@@ -47,6 +47,7 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   game_status_pub_ =
       this->create_publisher<jlcv_interfaces::msg::GameStatus>("/game_status", rclcpp::QoS(rclcpp::KeepLast(1)));
   latency_pub_ = this->create_publisher<std_msgs::msg::Float64>("/latency", 10);
+  robot_mode_pub_ = this->create_publisher<std_msgs::msg::UInt8>("/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)));
 
   // Detect parameter client
   armor_detector_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(this, "armor_detector");
@@ -74,7 +75,7 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   }
 
   energy_target_sub_ = this->create_subscription<geometry_msgs::msg::Vector3>(
-      "/energy_processor/energy_target", rclcpp::SensorDataQoS(),
+      "/ene_energy_processor/energy_target", rclcpp::SensorDataQoS(),
       std::bind(&SerialDriver::AngleSendData, this, std::placeholders::_1));
 
   target_angle_sub_ = this->create_subscription<geometry_msgs::msg::Vector3>(
@@ -156,6 +157,10 @@ void SerialDriver::receiveData()
           gamestatus.game_status = packet.game_status;
           gamestatus.outpost_status = packet.outpost_status;
           game_status_pub_->publish(gamestatus);
+
+          std_msgs::msg::UInt8 mode_msg;
+          mode_msg.data = packet.mode;
+          robot_mode_pub_->publish(mode_msg);
         }
         else
         {
