@@ -71,7 +71,7 @@ public:
         }
       });
 
-    // 订阅 /robot_mode，仅当 mode==1(BIG_ENERGY) 时激活本节点逻辑
+    // 订阅 /robot_mode，仅当 mode==3(BIG_ENERGY) 时激活本节点逻辑
     mode_sub_ = this->create_subscription<std_msgs::msg::UInt8>(
       "/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)),
       [this](const std_msgs::msg::UInt8::SharedPtr msg) {
@@ -120,7 +120,7 @@ private:
   // ========== Timer 回调：触发新一轮计算 ==========
   void onTimer()
   {
-    if (robot_mode_.load() != 1) {
+    if (robot_mode_.load() != 3) {
       RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
         "[big_energy_client] waiting for BIG_ENERGY mode (current mode=%d)",
         static_cast<int>(robot_mode_.load()));
@@ -310,7 +310,7 @@ private:
   double bullet_speed_;
 
   // 外部状态（由订阅回调更新）
-  std::atomic<uint8_t> robot_mode_{2};
+  std::atomic<uint8_t> robot_mode_{1};
   std::atomic<double> current_yaw_{0.0};
   std::atomic<double> current_pitch_{0.0};
   std::atomic<bool> g_has_detection_{false};

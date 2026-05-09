@@ -29,8 +29,8 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   : Node("jlcv_serial_driver", options)
   , owned_ctx_{ new IoContext(2) }
   , serial_driver_{ new drivers::serial_driver::SerialDriver(*owned_ctx_) }
-  , last_mode_(2)
-  , curr_mode_(2)
+  , last_mode_(0)
+  , curr_mode_(0)
 {
   RCLCPP_INFO(get_logger(), "Start SerialDriver!");
 
@@ -136,7 +136,8 @@ void SerialDriver::receiveData()
           if (curr_mode_ != last_mode_)
           {
             ResetMode();
-            if (curr_mode_ != jlcv_interfaces::srv::SetMode::Request::ARMOR)
+            if (curr_mode_ == jlcv_interfaces::srv::SetMode::Request::SMALL_ENERGY ||
+                curr_mode_ == jlcv_interfaces::srv::SetMode::Request::BIG_ENERGY)
             {
               ResetEnergyMode(rclcpp::Parameter("energy_mode", curr_mode_));
             }
@@ -392,7 +393,8 @@ void SerialDriver::ResetEnergyMode(const rclcpp::Parameter& param)
   // Set energy mode
   if (!set_param_future_.valid() || set_param_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
   {
-    RCLCPP_INFO(get_logger(), "Setting energy_mode to %s...", param.as_int() == 0 ? "SMALL_ENERGY" : "BIG_ENERGY");
+    RCLCPP_INFO(get_logger(), "Setting energy_mode to %s...",
+                param.as_int() == 2 ? "SMALL_ENERGY" : "BIG_ENERGY");
     energy_processor_param_client_->set_parameters({ param });
   }
 }

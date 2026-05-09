@@ -79,7 +79,7 @@ private:
   rclcpp::AsyncParametersClient::SharedPtr armor_detector_param_client_;
   ResultFuturePtr set_param_future_;
 
-  // SMALL_ENERGY:0  BIG_ENERGY:1  ARMOR:2
+  // ARMOR:0  NONE:1  SMALL_ENERGY:2  BIG_ENERGY:3
   rclcpp::AsyncParametersClient::SharedPtr energy_processor_param_client_;
   uint8_t last_mode_ ;
   uint8_t curr_mode_;

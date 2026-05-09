@@ -4,9 +4,10 @@
 统一能量机关启动文件。
 
 根据电控发送的 packet.mode，由串口驱动发布 /robot_mode 话题（std_msgs/UInt8）：
-  0 = SMALL_ENERGY  ->  little_energy_client 激活，big_energy_client 待机
-  1 = BIG_ENERGY    ->  big_energy_client   激活，little_energy_client 待机
-  2 = ARMOR         ->  两个 client 均待机
+  0 = ARMOR       ->  两个 client 均待机
+  1 = NONE        ->  两个 client 均待机
+  2 = SMALL_ENERGY ->  little_energy_client 激活，big_energy_client 待机
+  3 = BIG_ENERGY   ->  big_energy_client   激活，little_energy_client 待机
 
 所有节点同时启动，模式切换由各 client 节点内部的 /robot_mode 订阅实时响应。
 

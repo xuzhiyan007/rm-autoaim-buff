@@ -10,9 +10,10 @@
     三个节点共享进程内零拷贝通信(use_intra_process_comms: True)
 
 模式控制(packet.mode -> /robot_mode UInt8):
-  0 = SMALL_ENERGY  ->  little_energy_client 激活
-  1 = BIG_ENERGY    ->  big_energy_client   激活
-  2 = ARMOR         ->  armor_processor 工作,两个 energy client 均待机
+  0 = ARMOR        ->  armor_processor 工作，两个 energy client 均待机
+  1 = NONE         ->  两个 energy client 均待机
+  2 = SMALL_ENERGY ->  little_energy_client 激活
+  3 = BIG_ENERGY   ->  big_energy_client   激活
 
 启动时序:
   立即   -> robot_state_publisher(TF 骨架,来自 vision_bringup)
