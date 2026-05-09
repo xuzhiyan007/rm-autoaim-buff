@@ -49,8 +49,11 @@ install(
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(ament_cmake)
 
-ament_auto_package(
-  INSTALL_TO_SHARE
-  # USE_SCOPED_HEADER_INSTALL_DIR
+install(
+  DIRECTORY include/
+  DESTINATION include
 )
+
+ament_export_include_directories(include)
+ament_package()
 

@@ -10,7 +10,7 @@
 #include <yaml-cpp/yaml.h>      // YAML解析库
 
 #include <rclcpp/rclcpp.hpp>              // ROS2客户端库
-#include <cv_bridge/cv_bridge.h>          // ROS图像与OpenCV图像转换
+#include <cv_bridge/cv_bridge.hpp>          // ROS图像与OpenCV图像转换
 #include <sensor_msgs/msg/image.hpp>      // ROS图像消息类型
 #include <sensor_msgs/msg/joint_state.hpp> // ROS关节状态消息类型
 
