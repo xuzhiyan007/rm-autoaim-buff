@@ -10,84 +10,105 @@
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include <ctime>
 
-// Global variables (following existing pattern)
 rclcpp::Node::SharedPtr g_node = nullptr;
 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr g_image_sub = nullptr;
 bool g_should_exit = false;
 
-// Command line arguments
-std::string g_save_directory = "angle1_blue_min_sim1";
-std::string g_filename_prefix = "01_0_0_1_";
+std::string g_size_type = "little";
+std::string g_color_type = "red";
+std::string g_group = "01";
+int g_save_every_n_frames = 8;
 
-// Function to get user input from terminal
+std::string getCurrentDateTimeStr() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_info;
+    localtime_r(&t, &tm_info);
+    std::ostringstream oss;
+    oss << std::put_time(&tm_info, "%Y%m%d_%H%M");
+    return oss.str();
+}
+
 void getUserInput() {
     std::cout << "\n=== Image Saver Configuration ===" << std::endl;
-    std::cout << "Current settings:" << std::endl;
-    std::cout << "  Save directory: " << g_save_directory << std::endl;
-    std::cout << "  Filename prefix: " << g_filename_prefix << std::endl;
-    std::cout << std::endl;
+    std::string input;
 
-    std::cout << "Would you like to change these settings? (y/n): ";
-    std::string response;
-    std::getline(std::cin, response);
+    std::cout << "Select size type:" << std::endl;
+    std::cout << "  1. little" << std::endl;
+    std::cout << "  2. big" << std::endl;
+    std::cout << "Enter choice (1/2, default: 1-little): ";
+    std::getline(std::cin, input);
+    g_size_type = (input == "2") ? "big" : "little";
 
-    if (response == "y" || response == "Y" || response == "yes" || response == "YES") {
-        // Get save directory
-        std::cout << "Enter save directory name (default: " << g_save_directory << "): ";
-        std::string dir_input;
-        std::getline(std::cin, dir_input);
-        if (!dir_input.empty()) {
-            g_save_directory = dir_input;
-        }
+    std::cout << "Select color type:" << std::endl;
+    std::cout << "  1. red" << std::endl;
+    std::cout << "  2. blue" << std::endl;
+    std::cout << "Enter choice (1/2, default: 1-red): ";
+    std::getline(std::cin, input);
+    g_color_type = (input == "2") ? "blue" : "red";
 
-        // Get filename prefix
-        std::cout << "Enter filename prefix (default: " << g_filename_prefix << "): ";
-        std::string prefix_input;
-        std::getline(std::cin, prefix_input);
-        if (!prefix_input.empty()) {
-            g_filename_prefix = prefix_input;
+    std::cout << "Enter group number (e.g. 01, default: " << g_group << "): ";
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        g_group = input;
+    }
+
+    std::cout << "Save every N frames (default: " << g_save_every_n_frames << "): ";
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        try {
+            int val = std::stoi(input);
+            if (val > 0) {
+                g_save_every_n_frames = val;
+            } else {
+                std::cout << "Invalid value, using default: " << g_save_every_n_frames << std::endl;
+            }
+        } catch (...) {
+            std::cout << "Invalid value, using default: " << g_save_every_n_frames << std::endl;
         }
     }
 
-    std::cout << "\nFinal configuration:" << std::endl;
-    std::cout << "  Save directory: " << g_save_directory << std::endl;
-    std::cout << "  Filename prefix: " << g_filename_prefix << std::endl;
-    std::cout << "=================================" << std::endl;
-    std::cout << std::endl;
+    std::cout << "\nFinal configuration: " << g_size_type << "_" << g_color_type << "_" << g_group
+              << ", save every " << g_save_every_n_frames << " frames" << std::endl;
+    std::cout << "=================================" << std::endl << std::endl;
 }
 
-// Function to parse command line arguments
 void parseArguments(int argc, char** argv) {
-    bool has_dir_arg = false;
-    bool has_prefix_arg = false;
+    bool has_args = false;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
-            g_save_directory = argv[++i];
-            has_dir_arg = true;
-        } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
-            g_filename_prefix = argv[++i];
-            has_prefix_arg = true;
+        if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
+            g_size_type = argv[++i];
+            has_args = true;
+        } else if (strcmp(argv[i], "--color") == 0 && i + 1 < argc) {
+            g_color_type = argv[++i];
+            has_args = true;
+        } else if (strcmp(argv[i], "--group") == 0 && i + 1 < argc) {
+            g_group = argv[++i];
+            has_args = true;
+        } else if (strcmp(argv[i], "--every") == 0 && i + 1 < argc) {
+            g_save_every_n_frames = std::atoi(argv[++i]);
+            has_args = true;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
-                      << "  --dir <directory>     Set save directory (default: angle1_blue_min_sim1)\n"
-                      << "  --prefix <prefix>     Set filename prefix (default: 01_0_0_1_)\n"
-                      << "  --help, -h            Show this help message\n"
-                      << "\nIf no command line arguments are provided, the program will prompt"
-                      << "\nfor input during runtime." << std::endl;
+                      << "  --size <little|big>    Set size type (default: little)\n"
+                      << "  --color <red|blue>     Set color type (default: red)\n"
+                      << "  --group <group>        Set group number (default: 01)\n"
+                      << "  --every <N>            Save every N frames (default: 8)\n"
+                      << "  --help, -h             Show this help message\n"
+                      << "\nIf no arguments provided, interactive mode will be used." << std::endl;
             exit(0);
         }
     }
 
-    // If no command line arguments were provided, get user input interactively
-    if (!has_dir_arg && !has_prefix_arg) {
+    if (!has_args) {
         getUserInput();
     }
 }
 
-// Signal handler
 void SignalHandler(int signum) {
     if (g_node) {
         RCLCPP_INFO(g_node->get_logger(), "Received signal %d, shutting down...", signum);
@@ -98,32 +119,21 @@ void SignalHandler(int signum) {
 class ImageSaver : public rclcpp::Node {
 public:
     ImageSaver() : Node("image_saver") {
-        // Declare configuration parameters
         topic_name_ = this->declare_parameter("topic_name", "/image_raw");
-        save_directory_ = this->declare_parameter("save_directory", g_save_directory);
         image_format_ = this->declare_parameter("image_format", "jpg");
-        save_every_n_frames_ = this->declare_parameter("save_every_n_frames", 1);
-        starting_sequence_number_ = this->declare_parameter("starting_sequence_number", 1);
+        save_every_n_frames_ = this->declare_parameter("save_every_n_frames", g_save_every_n_frames);
 
-        // Store filename prefix from command line
-        filename_prefix_ = g_filename_prefix;
+        // 节点启动时固定时间戳（精确到分钟），保证同一次采集会话内命名前缀一致
+        std::string datetime_str = getCurrentDateTimeStr();
+        std::string base_name = datetime_str + "_" + g_size_type + "_" + g_color_type + "_" + g_group;
+        save_directory_ = base_name;
+        filename_prefix_ = base_name;
 
-        // Handle tilde in directory path
-        if (save_directory_[0] == '~') {
-            const char* home = getenv("HOME");
-            if (home) {
-                save_directory_ = std::string(home) + save_directory_.substr(1);
-            }
-        }
-
-        // Initialize sequence number
-        sequence_number_ = starting_sequence_number_;
+        sequence_number_ = 1;
         frame_count_ = 0;
 
-        // Ensure save directory exists
         ensureDirectoryExists(save_directory_);
 
-        // Open timestamps file (append mode)
         std::string ts_path = save_directory_ + "/timestamps.txt";
         timestamps_file_.open(ts_path, std::ios::app);
         if (!timestamps_file_.is_open()) {
@@ -132,7 +142,6 @@ public:
             RCLCPP_INFO(this->get_logger(), "Timestamps file: %s", ts_path.c_str());
         }
 
-        // Create subscriber (with optimized QoS)
         auto qos_profile = rclcpp::SensorDataQoS();
         qos_profile.keep_last(5);
         qos_profile.reliability(rclcpp::ReliabilityPolicy::BestEffort);
@@ -147,7 +156,6 @@ public:
         RCLCPP_INFO(this->get_logger(), "Listening to topic: %s", topic_name_.c_str());
         RCLCPP_INFO(this->get_logger(), "Save directory: %s", save_directory_.c_str());
         RCLCPP_INFO(this->get_logger(), "Image format: %s", image_format_.c_str());
-        RCLCPP_INFO(this->get_logger(), "Starting sequence number: %d", starting_sequence_number_);
         RCLCPP_INFO(this->get_logger(), "Save every N frames: %d", save_every_n_frames_);
     }
 
@@ -156,25 +164,24 @@ private:
         try {
             frame_count_++;
 
-            // Check if this frame should be saved
             if (frame_count_ % save_every_n_frames_ != 0) {
                 return;
             }
 
-            // Convert ROS image message to OpenCV Mat using cv_bridge
             cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-            
+
             if (cv_ptr->image.empty()) {
                 RCLCPP_WARN(this->get_logger(), "Received empty image");
                 return;
             }
 
-            // Generate filename (6-digit fixed format)
+            // 文件名格式：[日期时间]_[size]_[color]_[组别]_[序号(4位补零)].[格式]
             std::stringstream filename;
-            filename << filename_prefix_ << "_" << std::setw(6) << std::setfill('0') << sequence_number_ << "." << image_format_;
+            filename << filename_prefix_ << "_"
+                     << std::setw(4) << std::setfill('0') << sequence_number_
+                     << "." << image_format_;
             std::string full_path = save_directory_ + "/" + filename.str();
 
-            // Save image
             bool success = cv::imwrite(full_path, cv_ptr->image);
 
             if (success) {
@@ -182,7 +189,6 @@ private:
                 RCLCPP_INFO(this->get_logger(), "Saved image: %s (size: %dx%d, bytes: %zu)",
                            filename.str().c_str(), cv_ptr->image.cols, cv_ptr->image.rows, image_size);
 
-                // Write timestamp: filename sec nanosec
                 if (timestamps_file_.is_open()) {
                     timestamps_file_ << filename.str() << " "
                                      << msg->header.stamp.sec << " "
@@ -195,7 +201,6 @@ private:
                 RCLCPP_ERROR(this->get_logger(), "Failed to save image: %s", filename.str().c_str());
             }
 
-            // Statistics (every 10 frames)
             if (sequence_number_ % 10 == 1) {
                 static auto last_stats_time = std::chrono::steady_clock::now();
                 auto current_time = std::chrono::steady_clock::now();
@@ -204,7 +209,7 @@ private:
                 if (duration.count() > 0) {
                     double save_rate = 10.0 / duration.count();
                     RCLCPP_INFO(this->get_logger(), "Stats: Saved %d images, rate: %.1f fps",
-                               sequence_number_ - starting_sequence_number_, save_rate);
+                               sequence_number_ - 1, save_rate);
                 }
                 last_stats_time = current_time;
             }
@@ -229,43 +234,33 @@ private:
         }
     }
 
-    // Configuration parameters
     std::string topic_name_;
     std::string save_directory_;
     std::string image_format_;
     std::string filename_prefix_;
     int save_every_n_frames_;
-    int starting_sequence_number_;
 
-    // State tracking
     int frame_count_;
     int sequence_number_;
 
-    // Timestamps file
     std::ofstream timestamps_file_;
 };
 
 int main(int argc, char** argv) {
-    // Parse command line arguments first (before ROS2 initializes)
     parseArguments(argc, argv);
 
-    // Initialize ROS2
     rclcpp::init(argc, argv);
 
-    // Set signal handling
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
 
-    // Create image saver node
     g_node = std::make_shared<ImageSaver>();
 
-    // ROS2 spin
     while (rclcpp::ok() && !g_should_exit) {
         rclcpp::spin_some(g_node);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    // Cleanup
     RCLCPP_INFO(g_node->get_logger(), "Shutting down image saver node...");
     rclcpp::shutdown();
 
