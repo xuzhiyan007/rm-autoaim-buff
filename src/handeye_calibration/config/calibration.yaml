@@ -1,0 +1,11 @@
+# config/calibration.yaml
+# 手眼标定配置文件（不包含相机内参，内参单独存放）
+
+# 标定板参数
+pattern_cols: 11          # 圆点网格列数
+pattern_rows: 8           # 圆点网格行数
+center_distance_mm: 35.0  # 相邻圆心距离（毫米）
+
+# 云台到IMU本体的旋转矩阵（3x3，行主序）
+# 由于IMU提供yaw和pitch，roll固定为0，这里设为单位矩阵
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]

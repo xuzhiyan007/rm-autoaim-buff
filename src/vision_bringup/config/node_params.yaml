@@ -1,0 +1,89 @@
+/camera_node:
+  ros__parameters:
+    camera_info_url: package://vision_bringup/config/camera_info.yaml
+    camera_name: narrow_stereo
+    exposure_time: 800
+    fps: 165.0
+    gain: 16.0
+    use_sensor_data_qos: false
+
+/solve_angle:
+  ros__parameters:
+    CONTROL_TIME: 0.07
+    YAW_OFFSET: 0.035  ## -right
+    PITCH_OFFSET: -0.013 #+up
+
+/jlcv_serial_driver:
+  ros__parameters:
+    timestamp_offset: 0.0065
+    device_name: /dev/ttyUSB0
+    baud_rate: 921600
+    flow_control: none
+    parity: none
+    stop_bits: "1"
+
+/armor_detector:
+  ros__parameters:
+    debug: true
+    use_record: false
+    flip: false
+    enemy_color: 1
+    binary_thres: 50
+
+    light:
+      min_ratio: 0.02
+      max_ratio: 0.9
+    armor:
+      min_light_ratio: 0.6
+
+    classifier_threshold: 0.5
+    ignore_classes: ["negative"]
+
+/armor_processor:
+  ros__parameters:
+    target_frame: world
+    tracker_config_path: /home/dji/infantry/src/vision_bringup/config/standard3.yaml
+    show_mark: true
+
+    ekf:
+      sigma2_q_xyz: 7e-2      #7e-2
+      sigma2_q_yaw: 6e-2   #5e-2
+      sigma2_q_r: 80.0
+
+      r_xyz_factor: 6e-4  #6e-3 6e-4
+      r_yaw: 4e-5      #4e-5
+
+    tracker:
+      max_match_distance: 1.0
+      max_match_yaw_diff: 0.6
+      
+      tracking_thres: 3
+      lost_time_thres: 0.5
+
+/energy_detector:
+  ros__parameters:
+    debug: true
+    # const int RED = 0;  const int BLUE = 1;
+    enemy_color: 1
+    channel_thresh: 50
+
+    blue_s_low: 180
+    blue_s_high: 255
+    blue_v_low: 60
+    blue_v_high: 255
+
+    red_s_low: 180
+    red_s_high: 255
+    red_v_low: 60
+    red_v_high: 255
+
+/energy_processor:
+  ros__parameters:
+    debug: true
+    # SMALL_ENERGY:0  BIG_ENERGY:1
+    energy_mode: 0
+
+    cx: 580.0
+    cy: 180.0
+    fx:  1290.0
+    fx1: 9130.46

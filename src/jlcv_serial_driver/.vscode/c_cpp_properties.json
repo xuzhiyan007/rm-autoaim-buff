@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/jlcv4/infantry/install/jlcv_interfaces/include/**",
+        "/home/jlcv4/infantry/install/galaxy_camera/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/jlcv4/infantry/src/auto_aim/armor_detector/include/**",
+        "/home/jlcv4/infantry/src/auto_aim/armor_processor/include/**",
+        "/home/jlcv4/infantry/src/energy_detector/include/**",
+        "/home/jlcv4/infantry/src/galaxy_camera/include/**",
+        "/home/jlcv4/infantry/src/jlcv_serial_driver/include/**",
+        "/home/jlcv4/infantry/src/solve_angle/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

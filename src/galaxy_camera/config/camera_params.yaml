@@ -1,0 +1,10 @@
+/galaxy_camera_node:
+  ros__parameters:
+    camera_name: narrow_stereo
+    camera_info_url: package://vision_bringup/config/camera_info.yaml
+    frame_id: "camera_optical_frame"
+    use_sensor_data_qos: true
+    exposure_time: 3500.0
+    gain: 4
+    fps: 120
+    
