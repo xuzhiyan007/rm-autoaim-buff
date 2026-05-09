@@ -6,6 +6,7 @@
 #include <vector>
 #include <angles/angles.h>
 #include "tools/trajectory.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 namespace auto_aim
 {
 ArmorProcessorNode::ArmorProcessorNode(const rclcpp::NodeOptions& options) : Node("armor_processor", options)
@@ -19,7 +20,11 @@ ArmorProcessorNode::ArmorProcessorNode(const rclcpp::NodeOptions& options) : Nod
   // tracker_->tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
   // lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
 
-  std::string config_path = this->declare_parameter("tracker_config_path", "/home/dji/infantry/src/vision_bringup/config/standard3.yaml");
+  std::string config_path = this->declare_parameter("tracker_config_path", "");
+  if (config_path.empty() || config_path[0] != '/') {
+    config_path = ament_index_cpp::get_package_share_directory("vision_bringup") +
+      (config_path.empty() ? "/config/standard3.yaml" : "/" + config_path);
+  }
   auto yaml = YAML::LoadFile(config_path);
   bullet_speed = yaml["bullet_speed"].as<double>();
   tracker_ = std::make_unique<auto_aim::Tracker>(config_path, tools::g_ros_clock.now());

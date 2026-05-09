@@ -42,7 +42,7 @@
 /armor_processor:
   ros__parameters:
     target_frame: world
-    tracker_config_path: /home/dji/infantry/src/vision_bringup/config/standard3.yaml
+    tracker_config_path: config/standard3.yaml
     show_mark: true
 
     ekf:

@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(auto_aim)
 
-set(OpenVINO_DIR "/opt/intel/openvino_2024/runtime/cmake")
+if(NOT DEFINED OpenVINO_DIR AND NOT DEFINED ENV{OpenVINO_DIR})
+  set(OpenVINO_DIR "/opt/intel/openvino_2024/runtime/cmake")
+endif()
 
 
 find_package(ament_cmake_auto REQUIRED)
