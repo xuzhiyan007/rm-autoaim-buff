@@ -83,6 +83,12 @@ LifecycleArmorDetector::LifecycleArmorDetector(const rclcpp::NodeOptions& option
       "/image_raw", rclcpp::SensorDataQoS(),
       std::bind(&LifecycleArmorDetector::ImageCallback, this, std::placeholders::_1));
 
+  // /robot_mode 门控订阅：非 ARMOR 模式时跳过图像处理
+  mode_sub_ = this->create_subscription<std_msgs::msg::UInt8>(
+      "/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)),
+      [this](const std_msgs::msg::UInt8::SharedPtr msg) {
+          robot_mode_.store(msg->data);
+      });
 
 
   tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -130,7 +136,12 @@ void LifecycleArmorDetector::set_mode_callback(const jlcv_interfaces::srv::SetMo
 
 void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr img_msg)
 {
-  if(1)//Mode == jlcv_interfaces::srv::SetMode::Request::ARMOR)
+  if (robot_mode_.load() != 2) {
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "[armor_detector] standby (mode=%d, waiting for ARMOR=2)",
+        static_cast<int>(robot_mode_.load()));
+    return;
+  }
   {
     t_ = img_msg->header.stamp;
     armors_msg_.header = img_msg->header;
@@ -192,9 +203,6 @@ void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr im
     }
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
-
-    }else{
-    return ;
   }
 }
 

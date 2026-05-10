@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #if __has_include(<cv_bridge/cv_bridge.h>)
 #include <cv_bridge/cv_bridge.h>
@@ -236,6 +237,13 @@ private:
             std::bind(&OpenVINOInferenceNode::image_callback, this, std::placeholders::_1));
         // 注意：回调签名为 UniquePtr，与发布端 publish(std::move) 配合实现进程内零拷贝
 
+        // /robot_mode 门控订阅：非 ENERGY 模式时跳过推理
+        mode_sub_ = this->create_subscription<std_msgs::msg::UInt8>(
+            "/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)),
+            [this](const std_msgs::msg::UInt8::SharedPtr msg) {
+                robot_mode_.store(msg->data);
+            });
+
         keypoints_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(
             keypoints_topic_, qos_profile);
 
@@ -414,6 +422,13 @@ private:
 
     void image_callback(sensor_msgs::msg::Image::UniquePtr msg)
     {
+        uint8_t mode = robot_mode_.load();
+        if (mode != 0 && mode != 1) {
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                "[openvino_infer] standby (mode=%d, waiting for SMALL_ENERGY=0 or BIG_ENERGY=1)",
+                static_cast<int>(mode));
+            return;
+        }
         try {
             auto t_start = std::chrono::high_resolution_clock::now();
 
@@ -1163,6 +1178,10 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr keypoints_pub_;
+
+    // /robot_mode 门控（0=SMALL_ENERGY, 1=BIG_ENERGY, 2=ARMOR）
+    rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_sub_;
+    std::atomic<uint8_t> robot_mode_{0};  // 默认 SMALL_ENERGY，serial_driver 启动后快速修正
 
     std::string model_path_;
     std::string input_topic_;
