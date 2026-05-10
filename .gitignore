@@ -2,6 +2,8 @@
 build/
 install/
 log/
+*.bin
+*.xml
 
 # CMake 编译产物
 CMakeCache.txt
@@ -29,6 +31,8 @@ __pycache__/
 *.egg-info/
 dist/
 *.egg
+*.tar
+*.zip
 
 # IDE / 编辑器
 .vscode/settings.json

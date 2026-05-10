@@ -143,32 +143,42 @@ target_compile_definitions(coordinate_extractor PRIVATE
 target_link_libraries(coordinate_extractor ${OpenCV_LIBS})
 target_include_directories(coordinate_extractor PRIVATE ${OpenCV_INCLUDE_DIRS})
 
+# ===== YOLO Model Variant Selection =====
+# USE_YOLO26=ON : Use YOLO26 (NMS-Free) model
+#colcon build --packages-select openvino_infer --cmake-args -DUSE_YOLO26=ON 
+# USE_YOLO26=OFF: Use YOLO12 model (default)
+option(USE_YOLO26 "Build with YOLO26 (NMS-Free pose) model instead of YOLO12" ON)
+if(USE_YOLO26)
+    add_definitions(-DUSE_YOLO26)
+    message(STATUS ">>> YOLO26 (NMS-Free) model selected")
+else()
+    message(STATUS ">>> YOLO12 model selected (default)")
+endif()
+
 # openvino_infer_node: only built when OpenVINO is available
 if(OPENVINO_AVAILABLE)
     # 动态库：支持 rclcpp_components 组件注册（进程内通信）
     add_library(openvino_infer_component SHARED src/openvino_infer_node.cpp)
 
-    # Link libraries
-    target_link_libraries(openvino_infer_component
+    # Link libraries (modern CMake targets)
+    target_link_libraries(openvino_infer_component PUBLIC
         ${OpenCV_LIBS}
         ${OPENVINO_LIBS}
         ${YAML_CPP_SHARED_LIB}
+        ${geometry_msgs_TARGETS}
+        ${sensor_msgs_TARGETS}
+        ${std_msgs_TARGETS}
+        cv_bridge::cv_bridge
+        rclcpp::rclcpp
+        rclcpp_components::component
+        rclcpp_components::component_manager
+        sensor_msgs::sensor_msgs_library
     )
 
     # Include directories
     target_include_directories(openvino_infer_component PRIVATE
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}
-    )
-
-    # Add ROS2 dependencies
-    ament_target_dependencies(openvino_infer_component
-        rclcpp
-        rclcpp_components
-        sensor_msgs
-        std_msgs
-        geometry_msgs
-        cv_bridge
     )
 
     # 注册组件，同时自动生成独立可执行文件（兼容 ros2 run 独立启动）
@@ -211,6 +221,13 @@ install(DIRECTORY launch/
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models)
   install(DIRECTORY models/
     DESTINATION share/${PROJECT_NAME}/models
+  )
+endif()
+
+# YOLO26 model files
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models26)
+  install(DIRECTORY models26/
+    DESTINATION share/${PROJECT_NAME}/models26
   )
 endif()
 

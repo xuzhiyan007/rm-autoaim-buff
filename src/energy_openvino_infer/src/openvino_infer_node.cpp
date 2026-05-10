@@ -98,10 +98,19 @@ public:
 private:
     void initialize_ros2()
     {
+#ifdef USE_YOLO26
+        RCLCPP_INFO(this->get_logger(), "=== YOLO26 (NMS-Free) mode enabled ===");
+#else
+        RCLCPP_INFO(this->get_logger(), "=== YOLO12 mode enabled ===");
+#endif
         // 声明参数 - 使用 ~ 表示用户主目录，更具可移植性
-        this->declare_parameter("model_path", "~/RM_Simulation/src/openvino_infer/models/best.xml");
-        this->declare_parameter("template_r_path", "~/RM_Simulation/src/openvino_infer/template/R.png");
-        this->declare_parameter("template_circle_path", "~/RM_Simulation/src/openvino_infer/template/template_circle.png");
+#ifdef USE_YOLO26
+        this->declare_parameter("model_path", "~/infantry/src/energy_openvino_infer/models26/best26.onnx");
+#else
+        this->declare_parameter("model_path", "~/infantry/src/energy_openvino_infer/models/best.xml");
+#endif
+        this->declare_parameter("template_r_path", "~/infantry/src/energy_openvino_infer/template/R.png");
+        this->declare_parameter("template_circle_path", "~/infantry/src/energy_openvino_infer/template/template_circle.png");
         this->declare_parameter("input_topic", "/image_raw");
         this->declare_parameter("output_topic", "/detections");
         this->declare_parameter("keypoints_topic", "/ene_detection_keypoints");
@@ -149,7 +158,7 @@ private:
         template_channel_mode_ = this->get_parameter("template_channel_mode").as_string();
         kp0_hold_max_pixel_dist_ = static_cast<float>(this->get_parameter("kp0_hold_max_pixel_dist").as_double());
         enable_kp0_hold_ = this->get_parameter("enable_kp0_hold").as_bool();
-        this->declare_parameter("sift_params_path", "~/RM_Simulation/src/openvino_infer/config/SIFT_params.yaml");
+        this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
         std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
         load_sift_params(sift_params_path);
         if (enable_r_debug_mode_) {
@@ -455,7 +464,15 @@ private:
             auto t_infer = std::chrono::high_resolution_clock::now();
 
             std::vector<int> indices;
+#ifdef USE_YOLO26
+            // NMS-Free: model output is already top-K (300), just collect all
+            indices.reserve(confidences.size());
+            for (size_t i = 0; i < confidences.size(); i++) {
+                indices.push_back(static_cast<int>(i));
+            }
+#else
             cv::dnn::NMSBoxes(boxes, confidences, confidence_threshold_, nms_threshold_, indices);
+#endif
             auto t_nms = std::chrono::high_resolution_clock::now();
 
             if (indices.size() > 0) {
@@ -754,7 +771,11 @@ private:
                 perf_stats_.avg_sift_ms = 0.9 * perf_stats_.avg_sift_ms + 0.1 * ms_sift;
 
                 RCLCPP_INFO(this->get_logger(),
+#ifdef USE_YOLO26
+                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+#else
                     "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+#endif
                     ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
             } else {
                 auto t_end = std::chrono::high_resolution_clock::now();
@@ -764,7 +785,11 @@ private:
                 auto ms_total   = std::chrono::duration_cast<std::chrono::microseconds>(t_end     - t_start).count() / 1000.0;
 
                 RCLCPP_INFO(this->get_logger(),
+#ifdef USE_YOLO26
+                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | sift=0.00ms | pub=0.00ms | dets=0",
+#else
                     "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | sift=0.00ms | pub=0.00ms | dets=0",
+#endif
                     ms_total, ms_convert, ms_infer, ms_nms);
             }
 
@@ -900,14 +925,71 @@ private:
             const float* floatarr = output_tensor.data<const float>();
             auto out_shape = output_tensor.get_shape();
 
-            int num_channels = out_shape[1];
-            int num_anchors = out_shape[2];
-
             // 优化4: 复用缓冲区，避免重新分配
             boxes_buffer_.clear();
             confidences_buffer_.clear();
             class_ids_buffer_.clear();
             keypoints_buffer_.clear();
+
+#ifdef USE_YOLO26
+            // ===== YOLO26 NMS-Free: output shape [1, 300, 24] =====
+            // Layout (anchor-major): cols = [x1,y1,x2,y2, conf, cls_id, kp0..kp5]
+            // Bbox format: xyxy (top-left, bottom-right), already in 640x640 space
+            int num_dets = static_cast<int>(out_shape[1]);   // 300
+            int num_cols = static_cast<int>(out_shape[2]);   // 24
+
+            for (int i = 0; i < num_dets; i++) {
+                float confidence = floatarr[i * num_cols + 4];
+                if (confidence < confidence_threshold_) {
+                    continue;
+                }
+
+                // xyxy -> top-left x,y and width,height
+                float x1 = floatarr[i * num_cols + 0];
+                float y1 = floatarr[i * num_cols + 1];
+                float x2 = floatarr[i * num_cols + 2];
+                float y2 = floatarr[i * num_cols + 3];
+                float w = x2 - x1;
+                float h = y2 - y1;
+
+                // Reverse letterbox: same as YOLO12
+                float x_unpadded = x1 - paste_x;
+                float y_unpadded = y1 - paste_y;
+                float x_original = x_unpadded / scale;
+                float y_original = y_unpadded / scale;
+                float w_original = w / scale;
+                float h_original = h / scale;
+
+                x_original = std::max(0.0f, std::min(x_original, (float)orig_width));
+                y_original = std::max(0.0f, std::min(y_original, (float)orig_height));
+
+                class_ids_buffer_.push_back(0);
+                confidences_buffer_.push_back(confidence);
+                boxes_buffer_.push_back(cv::Rect((int)x_original, (int)y_original, (int)w_original, (int)h_original));
+
+                // Keypoints: 6 kp × (x, y, vis), starting at channel 6
+                std::vector<Keypoint> kps;
+                for (int k = 0; k < 6; k++) {
+                    float k_x = floatarr[i * num_cols + 6 + k * 3 + 0];
+                    float k_y = floatarr[i * num_cols + 6 + k * 3 + 1];
+                    float k_vis = floatarr[i * num_cols + 6 + k * 3 + 2];
+
+                    float k_x_orig = (k_x - paste_x) / scale;
+                    float k_y_orig = (k_y - paste_y) / scale;
+
+                    k_x_orig = std::max(0.0f, std::min(k_x_orig, (float)orig_width));
+                    k_y_orig = std::max(0.0f, std::min(k_y_orig, (float)orig_height));
+
+                    kps.push_back({k_x_orig, k_y_orig, k_vis});
+                }
+                keypoints_buffer_.push_back(std::move(kps));
+            }
+#else
+            // ===== YOLO12: output shape [1, 23, 8400] =====
+            // Layout (channel-major): rows = [cx,cy,w,h, conf, kp0..kp5]
+            // Bbox format: cx,cy,w,h (center, width, height), already in 640x640 space
+            int num_channels = static_cast<int>(out_shape[1]);  // 23
+            int num_anchors  = static_cast<int>(out_shape[2]);  // 8400
 
             for (int i = 0; i < num_anchors; i++) {
                 float confidence = floatarr[4 * num_anchors + i];
@@ -954,6 +1036,7 @@ private:
                 }
                 keypoints_buffer_.push_back(std::move(kps));
             }
+#endif
 
             // 将结果移动到输出参数
             boxes = std::move(boxes_buffer_);
