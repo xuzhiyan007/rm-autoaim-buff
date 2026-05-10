@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(fire)
+project(energy_fire)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -17,8 +17,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
-find_package(fitting REQUIRED)
-find_package(pose_transform REQUIRED)
+find_package(energy_fitting REQUIRED)
+find_package(energy_pose_transform REQUIRED)
 
 # Create executables
 add_executable(little_energy_client src/little_energy_client.cpp)
@@ -28,8 +28,8 @@ ament_target_dependencies(little_energy_client
   sensor_msgs
   std_msgs
   tf2
-  fitting
-  pose_transform
+  energy_fitting
+  energy_pose_transform
 )
 
 add_executable(big_energy_client src/big_energy_client.cpp)
@@ -39,10 +39,10 @@ ament_target_dependencies(big_energy_client
   sensor_msgs
   std_msgs
   tf2
-  fitting
-  pose_transform
+  energy_fitting
+  energy_pose_transform
 )
-target_link_libraries(big_energy_client ${fitting_TARGETS})
+target_link_libraries(big_energy_client ${energy_fitting_TARGETS})
 
 # Install targets
 install(TARGETS

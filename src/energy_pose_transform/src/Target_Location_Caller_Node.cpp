@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <pose_transform/srv/compute_target_location.hpp>
+#include <energy_pose_transform/srv/compute_target_location.hpp>
 #include <chrono>
 #include <memory>
 
@@ -19,7 +19,7 @@ public:
         double publish_rate = this->get_parameter("publish_rate").as_double();
 
         // 创建客户端
-        client_ = this->create_client<pose_transform::srv::ComputeTargetLocation>(
+        client_ = this->create_client<energy_pose_transform::srv::ComputeTargetLocation>(
             "/compute_target_location");
 
         // 等待服务可用
@@ -52,7 +52,7 @@ private:
             return;
         }
 
-        auto request = std::make_shared<pose_transform::srv::ComputeTargetLocation::Request>();
+        auto request = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
         request->delta_mu = delta_mu_;
 
         // 使用异步调用，不阻塞
@@ -62,7 +62,7 @@ private:
         // 但为了高频率，这里不等待响应
     }
 
-    rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedPtr client_;
+    rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedPtr client_;
     rclcpp::TimerBase::SharedPtr timer_;
     double delta_mu_;
 };

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(fitting)
+project(energy_fitting)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -12,7 +12,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
-find_package(pose_transform REQUIRED)
+find_package(energy_pose_transform REQUIRED)
 find_package(Ceres REQUIRED)
 
 # Generate service interfaces
@@ -34,7 +34,7 @@ add_executable(little_energy src/little_energy.cpp)
 ament_target_dependencies(little_energy
   rclcpp
   std_msgs
-  pose_transform
+  energy_pose_transform
 )
 
 # Ensure service interfaces are generated before building
@@ -45,7 +45,7 @@ target_link_libraries(little_energy "${cpp_typesupport_target}")
 add_executable(little_energy_client src/little_energy_client.cpp)
 ament_target_dependencies(little_energy_client
   rclcpp
-  pose_transform
+  energy_pose_transform
   OpenCV
 )
 target_link_libraries(little_energy_client "${cpp_typesupport_target}")
@@ -55,14 +55,14 @@ ament_target_dependencies(big_energy
   rclcpp
   std_msgs
   geometry_msgs
-  pose_transform
+  energy_pose_transform
 )
 target_link_libraries(big_energy "${cpp_typesupport_target}" Ceres::ceres)
 
 # add_executable(big_energy_client src/big_energy_client.cpp)
 # ament_target_dependencies(big_energy_client
 #   rclcpp
-#   pose_transform
+#   energy_pose_transform
 #   OpenCV
 # )
 # target_link_libraries(big_energy_client "${cpp_typesupport_target}")

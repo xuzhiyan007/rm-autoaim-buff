@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
 
-#include <fitting/srv/predict_energy.hpp>
+#include <energy_fitting/srv/predict_energy.hpp>
 #include <ceres/ceres.h>
 #include <cmath>
 #include <chrono>
@@ -96,7 +96,7 @@ public:
             "/ene_big_energy/theta0_parameter", 10);
 
         // Create service server
-        predict_service_ = this->create_service<fitting::srv::PredictEnergy>(
+        predict_service_ = this->create_service<energy_fitting::srv::PredictEnergy>(
             "/predict_energy_big",
             std::bind(&BigEnergyEKFNode::predictEnergyCallback, this,
                       std::placeholders::_1, std::placeholders::_2));
@@ -202,8 +202,8 @@ private:
      * @brief Service callback: predict angular difference over request->dt seconds
      */
     void predictEnergyCallback(
-        const std::shared_ptr<fitting::srv::PredictEnergy::Request> request,
-        std::shared_ptr<fitting::srv::PredictEnergy::Response> response)
+        const std::shared_ptr<energy_fitting::srv::PredictEnergy::Request> request,
+        std::shared_ptr<energy_fitting::srv::PredictEnergy::Response> response)
     {
         if (!estimation_valid_ || position_buffer_.empty()) {
             response->delta_mu = 0.0;
@@ -423,7 +423,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr a_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr b_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr theta0_publisher_;
-    rclcpp::Service<fitting::srv::PredictEnergy>::SharedPtr predict_service_;
+    rclcpp::Service<energy_fitting::srv::PredictEnergy>::SharedPtr predict_service_;
     rclcpp::TimerBase::SharedPtr update_timer_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
 

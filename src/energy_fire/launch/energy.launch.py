@@ -93,7 +93,7 @@ def generate_launch_description():
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),
             ComposableNode(
-                package='openvino_infer',
+                package='energy_openvino_infer',
                 plugin='OpenVINOInferenceNode',
                 name='openvino_infer_node',
                 parameters=[{'enable_r_debug_mode': True}],
@@ -106,7 +106,7 @@ def generate_launch_description():
 
     # 3. PnP 解算节点
     pnp_solver_node = Node(
-        package='pnp_solver',
+        package='energy_pnp_solver',
         executable='pnp_solver',
         name='pnp_solver_node',
         output='screen'
@@ -114,7 +114,7 @@ def generate_launch_description():
 
     # 4. 坐标变换节点 —— /pnp_poses -> /pnp_poses_ground
     pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Pose_Transform_Node',
         name='pose_transform_node',
         output='screen'
@@ -122,7 +122,7 @@ def generate_launch_description():
 
     # 5. 常规拟合节点
     fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='fitting_node',
         name='fitting_node',
         output='screen'
@@ -130,7 +130,7 @@ def generate_launch_description():
 
     # 6. 逆坐标变换节点 —— 提供 /compute_target_location 服务
     inverse_pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Inverse_Pose_Transform_Node',
         name='inverse_pose_transform_node',
         output='screen'
@@ -142,7 +142,7 @@ def generate_launch_description():
 
     # 大能量拟合节点 —— 提供 /predict_energy_big 服务
     big_energy_fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='big_energy',
         name='big_energy_fitting',
         output='screen',
@@ -153,7 +153,7 @@ def generate_launch_description():
 
     # 大能量预测节点
     big_energy_predict_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='big_energy_predict',
         name='big_energy_predict',
         output='screen',
@@ -166,7 +166,7 @@ def generate_launch_description():
 
     # 大能量火控客户端（订阅 /robot_mode，mode==1 时激活）
     big_energy_client_node = Node(
-        package='fire',
+        package='energy_fire',
         executable='big_energy_client',
         name='big_energy_client',
         output='screen',
@@ -183,7 +183,7 @@ def generate_launch_description():
 
     # 小能量拟合节点 —— 提供 /predict_energy 服务
     little_energy_fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='little_energy',
         name='little_energy_fitting',
         output='screen',
@@ -198,7 +198,7 @@ def generate_launch_description():
 
     # 小能量火控客户端（订阅 /robot_mode，mode==0 时激活）
     little_energy_client_node = Node(
-        package='fire',
+        package='energy_fire',
         executable='little_energy_client',
         name='little_energy_client',
         output='screen',

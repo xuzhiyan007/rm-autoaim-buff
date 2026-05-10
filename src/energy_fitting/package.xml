@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>fitting</name>
+  <name>energy_fitting</name>
   <version>0.0.1</version>
   <description>Inverse PnP transformation to convert camera coordinates to virtual plane coordinates</description>
   <maintainer email="user@todo.todo">user</maintainer>
@@ -13,7 +13,7 @@
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>OpenCV</depend>
-  <depend>pose_transform</depend>
+  <depend>energy_pose_transform</depend>
 
   <build_depend>rosidl_default_generators</build_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>

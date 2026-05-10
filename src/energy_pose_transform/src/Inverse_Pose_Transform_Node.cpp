@@ -8,7 +8,7 @@
 #include <string>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <pose_transform/srv/compute_target_location.hpp>
+#include <energy_pose_transform/srv/compute_target_location.hpp>
 
 // 全局变量（按照现有代码风格）
 rclcpp::Node::SharedPtr g_node = nullptr;
@@ -16,7 +16,7 @@ rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr g_poses_sub = nul
 rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr g_selected_poses_sub = nullptr;
 rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr g_transformed_poses_pub = nullptr;
 rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr g_joint_state_sub = nullptr;
-rclcpp::Service<pose_transform::srv::ComputeTargetLocation>::SharedPtr g_compute_service = nullptr;
+rclcpp::Service<energy_pose_transform::srv::ComputeTargetLocation>::SharedPtr g_compute_service = nullptr;
 rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr g_target_location_pub = nullptr;
 
 // 数据缓存
@@ -230,8 +230,8 @@ void selectedPosesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg)
 
 // Service callback to compute target location with energy mechanism rotation
 void computeTargetLocationService(
-    const std::shared_ptr<pose_transform::srv::ComputeTargetLocation::Request> request,
-    std::shared_ptr<pose_transform::srv::ComputeTargetLocation::Response> response)
+    const std::shared_ptr<energy_pose_transform::srv::ComputeTargetLocation::Request> request,
+    std::shared_ptr<energy_pose_transform::srv::ComputeTargetLocation::Response> response)
 {
     std::lock_guard<std::mutex> lock(g_data_mutex);
 
@@ -359,7 +359,7 @@ int main(int argc, char** argv)
         "/ene_target_location", 10);
 
     // 7. 创建服务 - 计算目标位置
-    g_compute_service = g_node->create_service<pose_transform::srv::ComputeTargetLocation>(
+    g_compute_service = g_node->create_service<energy_pose_transform::srv::ComputeTargetLocation>(
         "compute_target_location",
         computeTargetLocationService);
 

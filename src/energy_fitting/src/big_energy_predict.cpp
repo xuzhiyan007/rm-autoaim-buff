@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <fitting/srv/predict_energy.hpp>
+#include <energy_fitting/srv/predict_energy.hpp>
 #include <chrono>
 #include <memory>
 
@@ -24,7 +24,7 @@ public:
         double call_rate = this->get_parameter("call_rate").as_double();
 
         // Create service client
-        predict_client_ = this->create_client<fitting::srv::PredictEnergy>("/predict_energy_big");
+        predict_client_ = this->create_client<energy_fitting::srv::PredictEnergy>("/predict_energy_big");
 
         // Wait until the service is available
         RCLCPP_INFO(this->get_logger(), "Waiting for /predict_energy_big service...");
@@ -58,7 +58,7 @@ private:
         }
 
         // Build request with hardcoded dt = 1.0 s
-        auto request = std::make_shared<fitting::srv::PredictEnergy::Request>();
+        auto request = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
         request->dt = dt_;
 
         RCLCPP_INFO(this->get_logger(), "Calling /predict_energy_big with dt=%.3f s", dt_);
@@ -69,7 +69,7 @@ private:
             std::bind(&BigEnergyPredictClient::responseCallback, this, std::placeholders::_1));
     }
 
-    void responseCallback(rclcpp::Client<fitting::srv::PredictEnergy>::SharedFuture future)
+    void responseCallback(rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future)
     {
         auto response = future.get();
 
@@ -83,7 +83,7 @@ private:
         }
     }
 
-    rclcpp::Client<fitting::srv::PredictEnergy>::SharedPtr predict_client_;
+    rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedPtr predict_client_;
     rclcpp::TimerBase::SharedPtr timer_;
     double dt_;  // Hardcoded to 1.0 s
 };

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(openvino_infer)
+project(energy_openvino_infer)
 
 # Find ROS2 dependencies
 find_package(ament_cmake REQUIRED)

@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
-#include <fitting/srv/predict_energy.hpp>
-#include <pose_transform/srv/compute_target_location.hpp>
+#include <energy_fitting/srv/predict_energy.hpp>
+#include <energy_pose_transform/srv/compute_target_location.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
@@ -31,8 +31,8 @@ public:
     bullet_speed_ = this->get_parameter("bullet_speed").as_double();
 
     // 创建服务客户端
-    predict_client_ = this->create_client<fitting::srv::PredictEnergy>("/predict_energy_big");
-    target_client_ = this->create_client<pose_transform::srv::ComputeTargetLocation>(
+    predict_client_ = this->create_client<energy_fitting::srv::PredictEnergy>("/predict_energy_big");
+    target_client_ = this->create_client<energy_pose_transform::srv::ComputeTargetLocation>(
       "/compute_target_location");
 
     // 创建 /ene_energy_processor/energy_target 发布者 (x=pitch, y=yaw, z=shoot_flag)
@@ -133,19 +133,19 @@ private:
       return;
     }
 
-    auto predict_req = std::make_shared<fitting::srv::PredictEnergy::Request>();
+    auto predict_req = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
     predict_req->dt = dt_ + FIRE_LATENCY;
 
     RCLCPP_INFO(this->get_logger(), "Calling /predict_energy_big (async) with dt=%.3f", predict_req->dt);
 
     predict_client_->async_send_request(predict_req,
-      [this](rclcpp::Client<fitting::srv::PredictEnergy>::SharedFuture future) {
+      [this](rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future) {
         onPredictResponse(future);
       });
   }
 
   // ========== Predict 响应回调 ==========
-  void onPredictResponse(rclcpp::Client<fitting::srv::PredictEnergy>::SharedFuture future)
+  void onPredictResponse(rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future)
   {
     auto predict_resp = future.get();
     if (!predict_resp->success) {
@@ -157,7 +157,7 @@ private:
     RCLCPP_INFO(this->get_logger(),
                "/predict_energy_big success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
-    auto target_req = std::make_shared<pose_transform::srv::ComputeTargetLocation::Request>();
+    auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
     target_req->delta_mu = predict_resp->delta_mu;
     // target_req->delta_mu = 0.717; //TODO
 
@@ -166,7 +166,7 @@ private:
                predict_resp->delta_mu);
 
     target_client_->async_send_request(target_req,
-      [this](rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedFuture future) {
+      [this](rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedFuture future) {
         onComputeResponse(future);
       });
 
@@ -174,7 +174,7 @@ private:
   }
 
   // ========== Compute 响应回调：弹道解算与发布 ==========
-  void onComputeResponse(rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedFuture future)
+  void onComputeResponse(rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedFuture future)
   {
     // 无论成败，重置状态以便下一轮 Timer 可以触发
     state_.store(STATE_IDLE);
@@ -295,8 +295,8 @@ private:
   }
 
   // ROS 接口
-  rclcpp::Client<fitting::srv::PredictEnergy>::SharedPtr predict_client_;
-  rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedPtr target_client_;
+  rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedPtr predict_client_;
+  rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedPtr target_client_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr gimbal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr debug_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;

@@ -120,7 +120,7 @@ def generate_launch_description():
             ),
             # 3. OpenVINO 能量机关推理节点(来自 energy.launch.py)
             ComposableNode(
-                package='openvino_infer',
+                package='energy_openvino_infer',
                 plugin='OpenVINOInferenceNode',
                 name='openvino_infer_node',
                 parameters=[{'enable_r_debug_mode': True}],
@@ -135,7 +135,7 @@ def generate_launch_description():
     # PnP 解算节点(来自 energy.launch.py)
     # ============================
     pnp_solver_node = Node(
-        package='pnp_solver',
+        package='energy_pnp_solver',
         executable='pnp_solver',
         name='pnp_solver_node',
         output='screen'
@@ -145,7 +145,7 @@ def generate_launch_description():
     # 坐标变换节点(来自 energy.launch.py)
     # ============================
     pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Pose_Transform_Node',
         name='pose_transform_node',
         output='screen'
@@ -155,14 +155,14 @@ def generate_launch_description():
     # 常规拟合 + 逆坐标变换(来自 energy.launch.py)
     # ============================
     fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='fitting_node',
         name='fitting_node',
         output='screen'
     )
 
     inverse_pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Inverse_Pose_Transform_Node',
         name='inverse_pose_transform_node',
         output='screen'
@@ -172,7 +172,7 @@ def generate_launch_description():
     # 大能量机关专属节点(来自 energy.launch.py)
     # ============================
     big_energy_fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='big_energy',
         name='big_energy_fitting',
         output='screen',
@@ -182,7 +182,7 @@ def generate_launch_description():
     )
 
     big_energy_predict_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='big_energy_predict',
         name='big_energy_predict',
         output='screen',
@@ -194,7 +194,7 @@ def generate_launch_description():
     )
 
     big_energy_client_node = Node(
-        package='fire',
+        package='energy_fire',
         executable='big_energy_client',
         name='big_energy_client',
         output='screen',
@@ -209,7 +209,7 @@ def generate_launch_description():
     # 小能量机关专属节点(来自 energy.launch.py)
     # ============================
     little_energy_fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='little_energy',
         name='little_energy_fitting',
         output='screen',
@@ -223,7 +223,7 @@ def generate_launch_description():
     )
 
     little_energy_client_node = Node(
-        package='fire',
+        package='energy_fire',
         executable='little_energy_client',
         name='little_energy_client',
         output='screen',

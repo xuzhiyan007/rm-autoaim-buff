@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
-#include <fitting/srv/predict_energy.hpp>
-#include <pose_transform/srv/compute_target_location.hpp>
+#include <energy_fitting/srv/predict_energy.hpp>
+#include <energy_pose_transform/srv/compute_target_location.hpp>
 #include <opencv2/opencv.hpp>
 #include <chrono>
 #include <memory>
@@ -36,10 +36,10 @@ public:
         dt_ = g_dt_trackbar_value / 10.0;
         
         // Create client for predict_energy service
-        predict_client_ = this->create_client<fitting::srv::PredictEnergy>("/predict_energy");
+        predict_client_ = this->create_client<energy_fitting::srv::PredictEnergy>("/predict_energy");
         
         // Create client for compute_target_location service
-        target_location_client_ = this->create_client<pose_transform::srv::ComputeTargetLocation>(
+        target_location_client_ = this->create_client<energy_pose_transform::srv::ComputeTargetLocation>(
             "/compute_target_location");
         
         // Wait for service to be available
@@ -97,7 +97,7 @@ private:
         }
         
         // Create request
-        auto request = std::make_shared<fitting::srv::PredictEnergy::Request>();
+        auto request = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
         request->dt = dt_;
         
         RCLCPP_INFO(this->get_logger(), "Calling /predict_energy service with dt=%.3f", dt_);
@@ -108,7 +108,7 @@ private:
             std::bind(&LittleEnergyClient::predictEnergyResponseCallback, this, std::placeholders::_1));
     }
     
-    void predictEnergyResponseCallback(rclcpp::Client<fitting::srv::PredictEnergy>::SharedFuture future)
+    void predictEnergyResponseCallback(rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future)
     {
         auto response = future.get();
         
@@ -119,7 +119,7 @@ private:
             
             // Now call compute_target_location with the received delta_mu
             if (target_location_client_->service_is_ready()) {
-                auto target_request = std::make_shared<pose_transform::srv::ComputeTargetLocation::Request>();
+                auto target_request = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
                 target_request->delta_mu = response->delta_mu;
                 
                 RCLCPP_INFO(this->get_logger(), 
@@ -140,7 +140,7 @@ private:
     }
     
     void targetLocationResponseCallback(
-        rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedFuture future)
+        rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedFuture future)
     {
         auto response = future.get();
         
@@ -156,8 +156,8 @@ private:
         }
     }
     
-    rclcpp::Client<fitting::srv::PredictEnergy>::SharedPtr predict_client_;
-    rclcpp::Client<pose_transform::srv::ComputeTargetLocation>::SharedPtr target_location_client_;
+    rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedPtr predict_client_;
+    rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedPtr target_location_client_;
     rclcpp::TimerBase::SharedPtr timer_;
     double dt_;
 };

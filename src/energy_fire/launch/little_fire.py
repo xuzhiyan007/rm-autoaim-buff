@@ -75,7 +75,7 @@ def generate_launch_description():
 
     # 2. OpenVINO 推理节点
     openvino_infer_node = Node(
-        package='openvino_infer',
+        package='energy_openvino_infer',
         executable='openvino_infer_node',
         name='openvino_infer_node',
         output='screen',
@@ -84,7 +84,7 @@ def generate_launch_description():
 
     # 4. PnP 解算节点
     pnp_solver_node = Node(
-        package='pnp_solver',
+        package='energy_pnp_solver',
         executable='pnp_solver',
         name='pnp_solver_node',
         output='screen'
@@ -92,7 +92,7 @@ def generate_launch_description():
 
     # # 5. PnP 可视化节点
     # pnp_visualizer_node = Node(
-    #     package='pnp_solver',
+    #     package='energy_pnp_solver',
     #     executable='pnp_visualizer',
     #     name='pnp_visualizer_node',
     #     output='screen'
@@ -100,7 +100,7 @@ def generate_launch_description():
 
     # 6. 坐标变换节点 —— /pnp_poses -> /pnp_poses_ground（Inverse 节点的上游）
     pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Pose_Transform_Node',
         name='pose_transform_node',
         output='screen'
@@ -108,7 +108,7 @@ def generate_launch_description():
 
     # 8. 常规拟合节点
     fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='fitting_node',
         name='fitting_node',
         output='screen'
@@ -116,7 +116,7 @@ def generate_launch_description():
 
     # 9. 逆坐标变换节点 —— 提供 /compute_target_location 服务
     inverse_pose_transform_node = Node(
-        package='pose_transform',
+        package='energy_pose_transform',
         executable='Inverse_Pose_Transform_Node',
         name='inverse_pose_transform_node',
         output='screen'
@@ -124,7 +124,7 @@ def generate_launch_description():
 
     # 10. 小能量机关拟合节点 —— 提供 /predict_energy 服务
     little_energy_fitting_node = Node(
-        package='fitting',
+        package='energy_fitting',
         executable='little_energy',
         name='little_energy_fitting',
         output='screen',
@@ -139,7 +139,7 @@ def generate_launch_description():
 
     # 11. 小能量机关客户端节点（核心节点）
     little_energy_client_node = Node(
-        package='fire',
+        package='energy_fire',
         executable='little_energy_client',
         name='little_energy_client',
         output='screen',

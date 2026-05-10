@@ -1,6 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <fitting/srv/predict_energy.hpp>
+#include <energy_fitting/srv/predict_energy.hpp>
 #include <cmath>
 #include <chrono>
 #include <array>
@@ -61,7 +61,7 @@ public:
             "/ene_pnp_roll_angles_predict", 10);
         
         // Create service server
-        predict_service_ = this->create_service<fitting::srv::PredictEnergy>(
+        predict_service_ = this->create_service<energy_fitting::srv::PredictEnergy>(
             "/predict_energy",
             std::bind(&EKFNode::predictEnergyCallback, this, std::placeholders::_1, std::placeholders::_2));
         
@@ -86,8 +86,8 @@ private:
      * @param response Contains delta_mu (angular difference) and success flag
      */
     void predictEnergyCallback(
-        const std::shared_ptr<fitting::srv::PredictEnergy::Request> request,
-        std::shared_ptr<fitting::srv::PredictEnergy::Response> response)
+        const std::shared_ptr<energy_fitting::srv::PredictEnergy::Request> request,
+        std::shared_ptr<energy_fitting::srv::PredictEnergy::Response> response)
     {
         // Get current time and calculate elapsed time since start
         auto current_time = this->now();
@@ -212,7 +212,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr prediction_publisher_;
     
     // Service server
-    rclcpp::Service<fitting::srv::PredictEnergy>::SharedPtr predict_service_;
+    rclcpp::Service<energy_fitting::srv::PredictEnergy>::SharedPtr predict_service_;
     
     // EKF state variables (2D: [C, ω])
     double C_est_;         // Estimated phase C

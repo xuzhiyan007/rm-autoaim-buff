@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>fire</name>
+  <name>energy_fire</name>
   <version>0.0.0</version>
   <description>Little energy client node: calls predict_energy and compute_target_location services, solves pitch via ballistic calculation, and publishes /gimbal_command.</description>
   <maintainer email="user@todo.todo">user</maintainer>
@@ -14,8 +14,8 @@
   <depend>sensor_msgs</depend>
   <depend>tf2</depend>
   <build_depend>rosidl_cmake</build_depend>
-  <depend>fitting</depend>
-  <depend>pose_transform</depend>
+  <depend>energy_fitting</depend>
+  <depend>energy_pose_transform</depend>
 
   <exec_depend>python3-launch-ros</exec_depend>
 
