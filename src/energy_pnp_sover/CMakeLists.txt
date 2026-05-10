@@ -9,6 +9,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(camera_info_manager REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -39,7 +41,7 @@ target_link_libraries(pnp_visualizer)
 target_include_directories(pnp_solver PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_include_directories(pnp_visualizer PRIVATE)
 
-ament_target_dependencies(pnp_solver rclcpp geometry_msgs)
+ament_target_dependencies(pnp_solver rclcpp geometry_msgs sensor_msgs camera_info_manager)
 ament_target_dependencies(pnp_visualizer rclcpp geometry_msgs visualization_msgs tf2 tf2_geometry_msgs)
 
 # Install targets

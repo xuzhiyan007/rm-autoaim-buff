@@ -1,6 +1,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <camera_info_manager/camera_info_manager.hpp>
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <cmath>
@@ -61,16 +63,32 @@ int main(int argc, char * argv[]) {
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("pnp_solver_node");
     
-    // ============== 2. 准备参数 (直接写在 main 里) ==============
-    cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) <<
-        1801.993033, 0, 709.738410,
-        0, 1799.482808, 575.780270,
-        0, 0, 1
-    );
+    // ============== 2. 从 YAML 文件加载相机内参 ==============
+    std::string camera_name = node->declare_parameter("camera_name", "narrow_stereo");
+    auto camera_info_manager =
+        std::make_shared<camera_info_manager::CameraInfoManager>(node.get(), camera_name);
+    std::string camera_info_url = node->declare_parameter(
+        "camera_info_url", "package://vision_bringup/config/camera_info.yaml");
 
-    cv::Mat distCoeffs = (cv::Mat_<double>(5, 1) <<
-       -0.072646 , 0.136370,  0.000019, 0.000352 , 0.0
-    );
+    if (!camera_info_manager->validateURL(camera_info_url)) {
+        RCLCPP_FATAL(node->get_logger(), "Invalid camera_info_url: %s", camera_info_url.c_str());
+        rclcpp::shutdown();
+        return 1;
+    }
+    camera_info_manager->loadCameraInfo(camera_info_url);
+    auto camera_info_msg = camera_info_manager->getCameraInfo();
+
+    cv::Mat cameraMatrix =
+        cv::Mat(3, 3, CV_64F, const_cast<double *>(camera_info_msg.k.data())).clone();
+    cv::Mat distCoeffs =
+        cv::Mat(1, static_cast<int>(camera_info_msg.d.size()), CV_64F,
+                const_cast<double *>(camera_info_msg.d.data())).clone();
+
+    RCLCPP_INFO(node->get_logger(), "Loaded camera info from: %s", camera_info_url.c_str());
+    RCLCPP_INFO(node->get_logger(),
+                "Camera matrix: fx=%.3f, fy=%.3f, cx=%.3f, cy=%.3f",
+                cameraMatrix.at<double>(0, 0), cameraMatrix.at<double>(1, 1),
+                cameraMatrix.at<double>(0, 2), cameraMatrix.at<double>(1, 2));
 
     // ✅ 关键修正：为了适配 IPPE 算法，Z 必须为 0 (XY平面)
     // 这里的 X 对应原来的 Y (宽), Y 对应原来的 Z (长)
