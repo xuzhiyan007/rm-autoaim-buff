@@ -5,9 +5,9 @@
 # 正向变换：相机坐标系A -> yaw轴中心坐标系C
 # Translation from A to B (pitch axis center)
 translation:
-  x1: 0.0616  # x direction offset (m)
-  y1: -0.05235  # y direction offset (m)
-  z1: 0.0625  # z direction offset (m)
+  x1: 0.00073  # x direction offset (m)
+  y1: -0.0975  # y direction offset (m)
+  z1: 0.00352  # z direction offset (m)
 
 # Inverse transformation: Yaw Center (C) -> Barrel (A')
 # 逆变换：yaw轴中心坐标系C -> 枪管坐标系A'
