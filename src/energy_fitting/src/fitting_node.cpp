@@ -74,6 +74,9 @@ int main(int argc, char * argv[]) {
     // 3.4 Create publisher for selected pose in A-frame (single-element PoseArray)
     auto selected_pose_publisher = node->create_publisher<geometry_msgs::msg::PoseArray>("/ene_pnp_poses_selected_a", 10);
 
+    // 3.5 Create publisher for selected target raw yaw angle (radians) -> big_energy_fitting
+    auto yaw_publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_yaw", 10);
+
     // Persistent A/B slot state for clustering
     auto state = std::make_shared<TrackState>();
 
@@ -266,6 +269,15 @@ int main(int argc, char * argv[]) {
                 selected_pose_publisher->publish(selected_pose_arr);
                 RCLCPP_INFO(node->get_logger(), "Published selected pose (index=%d) to /pnp_poses_selected_a",
                             selected_index);
+            }
+
+            // Publish selected target's raw yaw angle (radians) to /ene_pnp_yaw
+            if (selected_index >= 0 && static_cast<size_t>(selected_index) < yaws.size()) {
+                auto yaw_msg = std_msgs::msg::Float64();
+                yaw_msg.data = yaws[selected_index];
+                yaw_publisher->publish(yaw_msg);
+                RCLCPP_INFO(node->get_logger(), "Published raw yaw: %.6f rad to /ene_pnp_yaw",
+                            yaws[selected_index]);
             }
 
             auto each_angle_msg = std_msgs::msg::Float64MultiArray();

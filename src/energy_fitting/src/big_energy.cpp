@@ -78,7 +78,7 @@ public:
 
         // Create subscriber
         position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-            "/ene_pnp_roll_angles", 100,
+            "/ene_pnp_yaw", 100,
             std::bind(&BigEnergyEKFNode::measurementCallback, this, std::placeholders::_1));
 
         // Create publishers
@@ -222,11 +222,10 @@ private:
     }
 
     /**
-     * @brief Measurement callback: receive raw roll angle from /pnp_roll_angles and buffer it
+     * @brief Measurement callback: receive raw yaw angle from /ene_pnp_yaw and buffer it
      *
-     * The topic publishes a bounded atan2-based angle in [-π, π].
-     * Continuity (unwrap) is applied later in updateTimerCallback, mirroring
-     * the approach in parameter_estimator_node.cpp.
+     * The topic publishes the raw atan2-based yaw angle in [-π, π] (radians).
+     * Continuity (unwrap) is applied later in updateTimerCallback.
      */
     void measurementCallback(const std_msgs::msg::Float64::SharedPtr msg)
     {
@@ -236,7 +235,7 @@ private:
         }
 
         double timestamp = this->now().seconds() - start_time_stamp_;
-        double angle = msg->data;  // raw roll angle in radians, bounded [-π, π]
+        double angle = msg->data;  // raw yaw angle in radians, bounded [-π, π]
 
         position_buffer_.push_back({timestamp, 0.0, 0.0, angle});
 
