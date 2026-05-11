@@ -134,9 +134,13 @@ private:
     }
 
     auto predict_req = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
-    predict_req->dt = dt_ + FIRE_LATENCY;
+    // 传入打中时刻的绝对时间戳（当前时刻 + 飞行时间 + 发射延迟）
+    // little_energy 节点将以最后一帧图像采集时刻为起点，此时刻为终点，计算 delta_mu
+    rclcpp::Time hit_time = this->now() + rclcpp::Duration::from_seconds(dt_ + FIRE_LATENCY);
+    predict_req->hit_time = hit_time;
 
-    RCLCPP_INFO(this->get_logger(), "Calling /predict_energy (async) with dt=%.3f", predict_req->dt);
+    RCLCPP_INFO(this->get_logger(), "Calling /predict_energy (async) with hit_time=%.3f s (dt=%.3f + latency=%.3f)",
+                hit_time.seconds(), dt_, FIRE_LATENCY);
 
     predict_client_->async_send_request(predict_req,
       [this](rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future) {
@@ -158,8 +162,8 @@ private:
                "/predict_energy success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    // target_req->delta_mu = predict_resp->delta_mu;
-    target_req->delta_mu = 0.517; //TODO
+    target_req->delta_mu = predict_resp->delta_mu;
+    //target_req->delta_mu = 0.517; //TODO
 
     RCLCPP_INFO(this->get_logger(),
                "Calling /compute_target_location (async) with delta_mu=%.6f",

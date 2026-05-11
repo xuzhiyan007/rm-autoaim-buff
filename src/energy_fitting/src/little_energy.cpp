@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <energy_fitting/srv/predict_energy.hpp>
 #include <cmath>
 #include <chrono>
@@ -47,13 +48,14 @@ public:
         P_ = {initial_p_c, 0.0, 0.0, initial_p_omega};  // Row-major: [P00, P01, P10, P11]
         
         // Initialize time
+        // start_time_ 将在收到第一帧时用图像采集时间戳覆盖，此处先占位
         start_time_ = this->now();
-        last_measurement_time_ = this->now();
+        last_capture_time_ = this->now();
         current_angle_ = 0.0;
         
-        // Create subscriber
-        subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-            "/ene_pnp_roll_angles", 10,
+        // Create subscriber (订阅带图像采集时间戳的话题)
+        subscription_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+            "/ene_pnp_roll_angles_stamped", 10,
             std::bind(&EKFNode::measurementCallback, this, std::placeholders::_1));
         
         // Create publisher
@@ -74,8 +76,8 @@ public:
         RCLCPP_INFO(this->get_logger(), "  Initial omega: %.6f (nominal 5*pi/3 = %.6f)", omega_est_, 5.0 * M_PI / 3.0);
         RCLCPP_INFO(this->get_logger(), "  Initial P: [[%.4f, %.4f], [%.4f, %.4f]]", P_[0], P_[1], P_[2], P_[3]);
         RCLCPP_INFO(this->get_logger(), "  Prediction dt: %.3f seconds", prediction_dt_);
-        RCLCPP_INFO(this->get_logger(), "Subscribing to: /pnp_roll_angles");
-        RCLCPP_INFO(this->get_logger(), "Publishing to: /pnp_roll_angles_predict");
+        RCLCPP_INFO(this->get_logger(), "Subscribing to: /ene_pnp_roll_angles_stamped (with image capture timestamp)");
+        RCLCPP_INFO(this->get_logger(), "Publishing to: /ene_pnp_roll_angles_predict");
         RCLCPP_INFO(this->get_logger(), "Service available: /predict_energy");
     }
 
@@ -89,42 +91,63 @@ private:
         const std::shared_ptr<energy_fitting::srv::PredictEnergy::Request> request,
         std::shared_ptr<energy_fitting::srv::PredictEnergy::Response> response)
     {
-        // Get current time and calculate elapsed time since start
-        auto current_time = this->now();
-        double t_current = (current_time - start_time_).seconds();
-        double t_future = t_current + request->dt;
+        // 将请求中的打中时刻转换为 rclcpp::Time
+        rclcpp::Time hit_time(request->hit_time);
         
-        // Calculate current angle: mu(t) = cos(ω*t + C) using estimated ω
-        double mu_current = omega_est_ * t_current + C_est_;
+        // 预测区间：从最后一帧图像采集时刻 → 打中时刻
+        // last_capture_time_ 在每次 EKF 更新时从消息 header.stamp 赋值，
+        // 与 EKF 拟合所用时间轴严格一致，消除采集时刻与拟合时刻不对应的问题。
+        double dt_capture_to_hit = (hit_time - last_capture_time_).seconds();
         
-        // Calculate future angle: mu(t+dt) = cos(ω*(t+dt) + C)
-        // double mu_future = omega_est_ * t_future + C_est_;
+        if (dt_capture_to_hit <= 0.0) {
+            RCLCPP_WARN(this->get_logger(),
+                        "hit_time (%.3f s) is not after last_capture_time_ (%.3f s), dt=%.4f s",
+                        hit_time.seconds(), last_capture_time_.seconds(), dt_capture_to_hit);
+            response->delta_mu = 0.0;
+            response->success = false;
+            return;
+        }
         
-        // Calculate angular difference
-        double delta_mu = omega_est_ * request->dt;
+        // delta_mu = ω * Δt（从采集时刻到打中时刻的角度变化量）
+        double delta_mu = omega_est_ * dt_capture_to_hit;
         
-        // RCLCPP_INFO(this->get_logger(), 
-        //            "Prediction: t=%.3f, dt=%.3f, omega=%.6f, C=%.6f, delta_mu=%.6f",
-        //            t_current, request->dt, omega_est_, C_est_, delta_mu);
+        RCLCPP_INFO(this->get_logger(),
+                    "Prediction: last_capture=%.3f s, hit=%.3f s, dt=%.4f s, omega=%.6f, delta_mu=%.6f rad",
+                    last_capture_time_.seconds(), hit_time.seconds(),
+                    dt_capture_to_hit, omega_est_, delta_mu);
         
-        // Store the response
         response->delta_mu = delta_mu;
         response->success = true;
     }
     
     /**
      * @brief Callback function for measurement updates
-     * @param msg Measurement message from /pnp_roll_angles
+     * @param msg Stamped measurement from /ene_pnp_roll_angles_stamped
+     *            header.stamp = 图像采集时刻（由上游透传）
+     *            vector.x    = cos(yaw * 5)（角度测量值）
      */
-    void measurementCallback(const std_msgs::msg::Float64::SharedPtr msg)
+    void measurementCallback(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
     {
-        // Get current time and calculate elapsed time since start
-        auto current_time = this->now();
-        double t = (current_time - start_time_).seconds();
-        double dt = (current_time - last_measurement_time_).seconds();
-        last_measurement_time_ = current_time;
+        // 使用消息中携带的图像采集时间戳，而非 this->now()（处理时刻），
+        // 保证与 EKF 拟合所用时间轴严格对应。
+        rclcpp::Time capture_time(msg->header.stamp);
         
-        double z = msg->data;  // Measurement
+        // 首帧到达时，将时间零点锁定为该帧的采集时刻，
+        // 使 t 从 0 开始增长，相位 C 的物理含义为第一帧时的初相。
+        if (!start_time_initialized_) {
+            start_time_ = capture_time;
+            last_capture_time_ = capture_time;
+            start_time_initialized_ = true;
+            RCLCPP_INFO(this->get_logger(),
+                        "EKF time origin locked to first capture timestamp: %.3f s",
+                        capture_time.seconds());
+        }
+        
+        double t = (capture_time - start_time_).seconds();
+        double dt = (capture_time - last_capture_time_).seconds();
+        last_capture_time_ = capture_time;  // 记录图像采集时刻
+        
+        double z = msg->vector.x;  // Measurement: cos(yaw * 5)
         
         // Store current angle
         current_angle_ = z;
@@ -208,7 +231,7 @@ private:
     }
     
     // Subscriptions and publishers
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscription_;
+    rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr subscription_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr prediction_publisher_;
     
     // Service server
@@ -226,7 +249,8 @@ private:
     
     // Time tracking
     rclcpp::Time start_time_;
-    rclcpp::Time last_measurement_time_;
+    rclcpp::Time last_capture_time_;  // 最后一帧图像采集时刻（由上游 header.stamp 透传）
+    bool start_time_initialized_{false};  // 首帧到达前为 false，零点尚未锁定
 };
 
 int main(int argc, char * argv[])

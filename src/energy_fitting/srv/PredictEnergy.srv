@@ -1,7 +1,7 @@
 # Service to predict energy mechanism rotation
-# Input: time delta for prediction
-float64 dt
+# Input: absolute ROS timestamp of when the bullet will hit the target
+builtin_interfaces/Time hit_time
 ---
-# Output: angular difference (delta_mu) between predicted and current angle
+# Output: angular difference (delta_mu) from last image capture to hit time
 float64 delta_mu
 bool success

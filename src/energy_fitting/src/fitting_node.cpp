@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -61,6 +62,8 @@ int main(int argc, char * argv[]) {
     
     // 2. Create publisher for mean z_rotation
     auto publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles", 10);
+    // 带采集时间戳的并行话题，供 little_energy EKF 节点使用（x = roll_angle, header.stamp = 图像采集时刻）
+    auto stamped_publisher = node->create_publisher<geometry_msgs::msg::Vector3Stamped>("/ene_pnp_roll_angles_stamped", 10);
     
     // 3.1 Create publisher for roll_angles_count list
     auto count_publisher = node->create_publisher<std_msgs::msg::Int32MultiArray>("/ene_pnp_roll_angles_count", 10);
@@ -298,6 +301,12 @@ int main(int argc, char * argv[]) {
             auto output_msg = std_msgs::msg::Float64();
             output_msg.data = selected_roll_angle_5x;
             publisher->publish(output_msg);
+            
+            // 同步发布带采集时间戳的话题（透传上游图像采集时刻）
+            auto stamped_msg = geometry_msgs::msg::Vector3Stamped();
+            stamped_msg.header = msg->header;  // 继承图像采集时间戳
+            stamped_msg.vector.x = selected_roll_angle_5x;
+            stamped_publisher->publish(stamped_msg);
             
             // Publish roll_angles_count list
             auto count_msg = std_msgs::msg::Int32MultiArray();

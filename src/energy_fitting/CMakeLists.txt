@@ -34,6 +34,7 @@ add_executable(little_energy src/little_energy.cpp)
 ament_target_dependencies(little_energy
   rclcpp
   std_msgs
+  geometry_msgs
   energy_pose_transform
 )
 
