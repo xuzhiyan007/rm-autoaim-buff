@@ -13,7 +13,8 @@
 /**
  * @brief Sliding-Window Ceres Optimization Node for Non-Uniform Circular Motion
  *
- * The model follows: θ(t) = (a/b) * (1 - cos(b*t)) + (2.09 - a)*t + θ0
+ * The model follows: θ(t) = (a/b) * (1 - cos(b*t)) + dir * (2.09 - a)*t + θ0
+ *   - dir: rotation direction (+1 = CCW / positive, -1 = CW / negative)
  * where:
  *   - a: amplitude parameter (range: 0.780-1.045)
  *   - b: angular frequency (omega, range: 1.884-2.0)
@@ -52,6 +53,7 @@ public:
         this->declare_parameter("max_a", 1.045);
         this->declare_parameter("min_b", 1.884);
         this->declare_parameter("max_b", 2.000);
+        this->declare_parameter("direction", 1);   // +1 = CCW, -1 = CW
 
         // Get parameters
         window_size_   = this->get_parameter("window_size").as_int();
@@ -68,6 +70,13 @@ public:
         max_a_ = this->get_parameter("max_a").as_double();
         min_b_ = this->get_parameter("min_b").as_double();
         max_b_ = this->get_parameter("max_b").as_double();
+        dir_   = this->get_parameter("direction").as_int();
+        if (dir_ != 1 && dir_ != -1) {
+            RCLCPP_WARN(this->get_logger(),
+                        "Invalid direction parameter (%d), must be +1 or -1. Falling back to +1 (CCW).",
+                        dir_);
+            dir_ = 1;
+        }
 
         // Initialize estimates
         a_est_      = initial_a_;
@@ -116,7 +125,10 @@ public:
         RCLCPP_INFO(this->get_logger(),
                     "Big Energy Fitting Node started (Ceres sliding-window: a, b, theta0)");
         RCLCPP_INFO(this->get_logger(),
-                    "Model: theta(t) = (a/b)*(1-cos(b*t)) + (2.09-a)*t + theta0");
+                    "Model: theta(t) = (a/b)*(1-cos(b*t)) + dir*(2.09-a)*t + theta0");
+        RCLCPP_INFO(this->get_logger(),
+                    "  Direction: %+d (%s)",
+                    dir_, dir_ >= 0 ? "CCW / positive" : "CW / negative");
         RCLCPP_INFO(this->get_logger(),
                     "  Initial a=%.4f, b=%.4f, theta0=%.4f", a_est_, b_est_, theta0_est_);
         RCLCPP_INFO(this->get_logger(),
@@ -130,7 +142,8 @@ private:
      * @brief Ceres cost function for sliding-window angle fitting
      *
      * Residual_i = sqrt(w_i) * (cos(5*theta_model(t_i)) - cos(5*theta_measured_i))
-     * theta_model(t) = (a/b) * (1 - cos(b*t)) + (2.09 - a)*t + theta0
+     * theta_model(t) = (a/b) * (1 - cos(b*t)) + dir * (2.09 - a)*t + theta0
+     * dir: +1 = CCW (positive rotation), -1 = CW (negative rotation)
      *
      * Using cos(5*theta) as the fitting target makes the residual immune to
      * target-blade jumps of 2*pi/5: cos(5*(theta + k*2pi/5)) = cos(5*theta).
@@ -141,8 +154,9 @@ private:
     struct AngleCostFunction {
         AngleCostFunction(const std::vector<double>& times,
                           const std::vector<double>& cos5_angles,
-                          const std::vector<double>& weights)
-            : times_(times), cos5_angles_(cos5_angles), weights_(weights) {}
+                          const std::vector<double>& weights,
+                          int dir)
+            : times_(times), cos5_angles_(cos5_angles), weights_(weights), dir_(dir) {}
 
         template <typename T>
         bool operator()(const T* const parameters, T* residuals) const
@@ -157,7 +171,7 @@ private:
 
             for (size_t i = 0; i < times_.size(); ++i) {
                 T predicted_angle = (a / b) * (T(1.0) - ceres::cos(b * T(times_[i]))) +
-                                    (T(2.09) - a) * T(times_[i]) + theta0;
+                                    T(dir_) * (T(2.09) - a) * T(times_[i]) + theta0;
 
                 T predicted_cos5  = ceres::cos(T(5.0) * predicted_angle);
                 residuals[i] = ceres::sqrt(T(weights_[i])) * (predicted_cos5 - T(cos5_angles_[i]));
@@ -170,6 +184,7 @@ private:
         const std::vector<double>& times_;
         const std::vector<double>& cos5_angles_;
         const std::vector<double>& weights_;
+        int dir_;  // rotation direction: +1 = CCW (positive), -1 = CW (negative)
     };
 
     /** @brief Buffered position/angle measurement */
@@ -181,13 +196,14 @@ private:
 
     // ───────────────────────── Utility helpers ─────────────────────────
 
-    /** theta(t) = (a/b)*(1-cos(b*t)) + (2.09-a)*t + theta0 */
-    double calculateTheta(double a, double b, double theta0, double t) const
+    /** theta(t) = (a/b)*(1-cos(b*t)) + dir*(2.09-a)*t + theta0
+     *  @param dir  rotation direction: +1 = CCW (positive), -1 = CW (negative) */
+    double calculateTheta(double a, double b, double theta0, double t, int dir = 1) const
     {
         if (std::abs(b) < 1e-10) {
-            return (2.09 - a) * t + theta0;
+            return dir * (2.09 - a) * t + theta0;
         }
-        return (a / b) * (1.0 - std::cos(b * t)) + (2.09 - a) * t + theta0;
+        return (a / b) * (1.0 - std::cos(b * t)) + dir * (2.09 - a) * t + theta0;
     }
 
     /** Normalize angle to [-pi, pi] */
@@ -224,8 +240,8 @@ private:
         double t_current = (last_capture_time_ - start_time_).seconds();
         double t_future  = (hit_time - start_time_).seconds();
 
-        double theta_current = calculateTheta(a_est_, b_est_, theta0_est_, t_current);
-        double theta_future  = calculateTheta(a_est_, b_est_, theta0_est_, t_future);
+        double theta_current = calculateTheta(a_est_, b_est_, theta0_est_, t_current, dir_);
+        double theta_future  = calculateTheta(a_est_, b_est_, theta0_est_, t_future, dir_);
 
         response->delta_mu = theta_future - theta_current;
         response->success  = true;
@@ -306,7 +322,7 @@ private:
 
         ceres::CostFunction* cost_function =
             new ceres::AutoDiffCostFunction<AngleCostFunction, ceres::DYNAMIC, 3>(
-                new AngleCostFunction(times, cos5_angles, weights),
+                new AngleCostFunction(times, cos5_angles, weights, dir_),
                 static_cast<int>(times.size()));
 
         problem.AddResidualBlock(cost_function, nullptr, parameters);
@@ -398,7 +414,7 @@ private:
         // Predict future position
         double t_current      = position_buffer_.back().timestamp;
         double t_future       = t_current + prediction_dt_;
-        double predicted_theta = calculateTheta(a_est_, b_est_, theta0_est_, t_future);
+        double predicted_theta = calculateTheta(a_est_, b_est_, theta0_est_, t_future, dir_);
         double predicted_x    = radius_ * std::cos(predicted_theta);
         double predicted_z    = radius_ * std::sin(predicted_theta);
 
@@ -445,6 +461,7 @@ private:
     double radius_;
     double initial_a_, initial_b_, initial_theta0_;
     double min_a_, max_a_, min_b_, max_b_;
+    int    dir_;   // rotation direction: +1 = CCW, -1 = CW
 
     // Estimated state
     double a_est_;
