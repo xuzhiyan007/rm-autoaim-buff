@@ -18,15 +18,18 @@
  *   - b: angular frequency (omega, range: 1.884-2.0)
  *   - θ0: initial phase
  *
- * Estimation strategy (based on parameter_estimator_node.cpp):
- *   - Collects position measurements into a sliding window buffer
+ * Estimation strategy:
+ *   - Collects raw yaw measurements into a sliding window buffer
+ *   - Pre-computes cos(5*theta) for each measurement, making residuals immune
+ *     to target-blade jumps of 2*pi/5 (5-fold symmetry of the energy wheel)
  *   - Periodically solves a nonlinear least-squares problem via Ceres
  *   - Uses time-weighted residuals (newer data → higher weight)
  *   - Detects and resets boundary-stuck parameters
+ *   - No angle unwrapping required: cos(5*theta) ∈ [-1, 1] is naturally bounded
  *
- * This node subscribes to /pnp_poses (PoseArray) and extracts the roll angle
- * via atan2 from each pose's quaternion, then provides a service /predict_energy_big
- * for angle prediction.
+ * This node subscribes to /ene_pnp_yaw and provides a service /predict_energy_big
+ * for angle prediction. The predicted angular difference theta(t_future)-theta(t_current)
+ * is independent of theta0, so the 5-fold phase degeneracy has no effect on output.
  */
 class BigEnergyEKFNode : public rclcpp::Node
 {
@@ -126,14 +129,20 @@ private:
     /**
      * @brief Ceres cost function for sliding-window angle fitting
      *
-     * Residual_i = sqrt(w_i) * unwrap( theta_model(t_i) - theta_measured_i )
+     * Residual_i = sqrt(w_i) * (cos(5*theta_model(t_i)) - cos(5*theta_measured_i))
      * theta_model(t) = (a/b) * (1 - cos(b*t)) + (2.09 - a)*t + theta0
+     *
+     * Using cos(5*theta) as the fitting target makes the residual immune to
+     * target-blade jumps of 2*pi/5: cos(5*(theta + k*2pi/5)) = cos(5*theta).
+     * No angle unwrapping is needed because cos(5*theta) is naturally bounded
+     * in [-1, 1]. The 5-fold phase degeneracy in theta0 has no effect on the
+     * predicted angular difference theta(t_future) - theta(t_current).
      */
     struct AngleCostFunction {
         AngleCostFunction(const std::vector<double>& times,
-                          const std::vector<double>& angles,
+                          const std::vector<double>& cos5_angles,
                           const std::vector<double>& weights)
-            : times_(times), angles_(angles), weights_(weights) {}
+            : times_(times), cos5_angles_(cos5_angles), weights_(weights) {}
 
         template <typename T>
         bool operator()(const T* const parameters, T* residuals) const
@@ -150,24 +159,16 @@ private:
                 T predicted_angle = (a / b) * (T(1.0) - ceres::cos(b * T(times_[i]))) +
                                     (T(2.09) - a) * T(times_[i]) + theta0;
 
-                T angle_diff = unwrapAngle(predicted_angle - T(angles_[i]));
-                residuals[i] = ceres::sqrt(T(weights_[i])) * angle_diff;
+                T predicted_cos5  = ceres::cos(T(5.0) * predicted_angle);
+                residuals[i] = ceres::sqrt(T(weights_[i])) * (predicted_cos5 - T(cos5_angles_[i]));
             }
 
             return true;
         }
 
-        template <typename T>
-        static T unwrapAngle(const T& angle)
-        {
-            T two_pi  = T(2.0 * M_PI);
-            T wrapped = angle - ceres::floor((angle + T(M_PI)) / two_pi) * two_pi;
-            return wrapped;
-        }
-
     private:
         const std::vector<double>& times_;
-        const std::vector<double>& angles_;
+        const std::vector<double>& cos5_angles_;
         const std::vector<double>& weights_;
     };
 
@@ -261,13 +262,16 @@ private:
             return;
         }
 
-        // ── 1. Extract sliding window ──
-        std::vector<double> times, angles, weights;
+        // ── 1. Extract sliding window and pre-compute cos(5*angle) ──
+        // cos(5*theta) is used as the fitting target:
+        //   - Immune to target-blade jumps of 2*pi/5 (cos(5*(theta+2pi/5)) = cos(5*theta))
+        //   - No angle unwrapping needed (bounded in [-1, 1])
+        std::vector<double> times, cos5_angles, weights;
         for (size_t i = position_buffer_.size() - window_size_;
              i < position_buffer_.size(); ++i)
         {
             times.push_back(position_buffer_[i].timestamp);
-            angles.push_back(position_buffer_[i].angle);
+            cos5_angles.push_back(std::cos(5.0 * position_buffer_[i].angle));
 
             // Time-weighted: older→0.5, newest→2.0
             double time_weight =
@@ -275,17 +279,7 @@ private:
             weights.push_back(0.5 + 1.5 * time_weight);
         }
 
-        // ── 2. Unwrap angles for continuity ──
-        for (size_t i = 1; i < angles.size(); ++i) {
-            double diff = angles[i] - angles[i - 1];
-            if (diff > M_PI) {
-                for (size_t j = i; j < angles.size(); ++j) angles[j] -= 2.0 * M_PI;
-            } else if (diff < -M_PI) {
-                for (size_t j = i; j < angles.size(); ++j) angles[j] += 2.0 * M_PI;
-            }
-        }
-
-        // ── 3. Build Ceres problem ──
+        // ── 2. Build Ceres problem ──
         ceres::Problem problem;
         double parameters[3] = {a_est_, b_est_, theta0_est_};
 
@@ -295,7 +289,7 @@ private:
 
         ceres::CostFunction* cost_function =
             new ceres::AutoDiffCostFunction<AngleCostFunction, ceres::DYNAMIC, 3>(
-                new AngleCostFunction(times, angles, weights),
+                new AngleCostFunction(times, cos5_angles, weights),
                 static_cast<int>(times.size()));
 
         problem.AddResidualBlock(cost_function, nullptr, parameters);
@@ -307,7 +301,7 @@ private:
         problem.SetParameterLowerBound(parameters, 1, min_b_ + margin);
         problem.SetParameterUpperBound(parameters, 1, max_b_ - margin);
 
-        // ── 4. Solver options ──
+        // ── 3. Solver options ──
         ceres::Solver::Options options;
         options.max_num_iterations            = 200;
         options.linear_solver_type            = ceres::DENSE_QR;
@@ -333,7 +327,7 @@ private:
             b_est_      = parameters[1];
             theta0_est_ = parameters[2];
 
-            // ── 5. Boundary-stuck detection & reset ──
+            // ── 4. Boundary-stuck detection & reset ──
             bool at_upper_a = (a_est_ > (max_a_ - 0.1));
             bool at_lower_a = (a_est_ < (min_a_ + 0.1));
             bool at_upper_b = (b_est_ > (max_b_ - 0.1));
