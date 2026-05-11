@@ -100,12 +100,6 @@ public:
             "/ene_big_energy/predicted_x", 10);
         predicted_z_publisher_ = this->create_publisher<std_msgs::msg::Float64>(
             "/ene_big_energy/predicted_z", 10);
-        a_publisher_ = this->create_publisher<std_msgs::msg::Float64>(
-            "/ene_big_energy/a_parameter", 10);
-        b_publisher_ = this->create_publisher<std_msgs::msg::Float64>(
-            "/ene_big_energy/b_parameter", 10);
-        theta0_publisher_ = this->create_publisher<std_msgs::msg::Float64>(
-            "/ene_big_energy/theta0_parameter", 10);
 
         // Create service server
         predict_service_ = this->create_service<energy_fitting::srv::PredictEnergy>(
@@ -398,19 +392,6 @@ private:
             return;
         }
 
-        // Publish estimated parameters
-        auto a_msg = std_msgs::msg::Float64();
-        a_msg.data = a_est_;
-        a_publisher_->publish(a_msg);
-
-        auto b_msg = std_msgs::msg::Float64();
-        b_msg.data = b_est_;
-        b_publisher_->publish(b_msg);
-
-        auto theta0_msg = std_msgs::msg::Float64();
-        theta0_msg.data = theta0_est_;
-        theta0_publisher_->publish(theta0_msg);
-
         // Predict future position
         double t_current      = position_buffer_.back().timestamp;
         double t_future       = t_current + prediction_dt_;
@@ -446,9 +427,6 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr prediction_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr predicted_x_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr predicted_z_publisher_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr a_publisher_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr b_publisher_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr theta0_publisher_;
     rclcpp::Service<energy_fitting::srv::PredictEnergy>::SharedPtr predict_service_;
     rclcpp::TimerBase::SharedPtr update_timer_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
