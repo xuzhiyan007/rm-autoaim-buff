@@ -43,13 +43,13 @@ rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME} rosidl_typesupport_cpp)
 target_link_libraries(little_energy "${cpp_typesupport_target}")
 
-add_executable(little_energy_client src/little_energy_client.cpp)
-ament_target_dependencies(little_energy_client
-  rclcpp
-  energy_pose_transform
-  OpenCV
-)
-target_link_libraries(little_energy_client "${cpp_typesupport_target}")
+# add_executable(little_energy_client src/little_energy_client.cpp)
+# ament_target_dependencies(little_energy_client
+#   rclcpp
+#   energy_pose_transform
+#   OpenCV
+# )
+# target_link_libraries(little_energy_client "${cpp_typesupport_target}")
 
 add_executable(big_energy src/big_energy.cpp)
 ament_target_dependencies(big_energy
@@ -68,11 +68,11 @@ target_link_libraries(big_energy "${cpp_typesupport_target}" Ceres::ceres)
 # )
 # target_link_libraries(big_energy_client "${cpp_typesupport_target}")
 
-add_executable(big_energy_predict src/big_energy_predict.cpp)
-ament_target_dependencies(big_energy_predict
-  rclcpp
-)
-target_link_libraries(big_energy_predict "${cpp_typesupport_target}")
+# add_executable(big_energy_predict src/big_energy_predict.cpp)
+# ament_target_dependencies(big_energy_predict
+#   rclcpp
+# )
+# target_link_libraries(big_energy_predict "${cpp_typesupport_target}")
 
 # Install launch files
 install(DIRECTORY launch
@@ -83,10 +83,7 @@ install(DIRECTORY launch
 install(TARGETS
   fitting_node
   little_energy
-  little_energy_client
   big_energy
-
-  big_energy_predict
   DESTINATION lib/${PROJECT_NAME}
 )
 
