@@ -59,7 +59,11 @@ int main(int argc, char * argv[]) {
     // 1. Initialize ROS2
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("inverse_pnp_node");
-    
+
+    // 1.1 Declare clustering parameters
+    node->declare_parameter("switch_threshold", 0.3);
+    node->declare_parameter("identity_threshold", 0.6);
+
     // 2. Create publisher for mean z_rotation
     auto publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles", 10);
     // 带采集时间戳的并行话题，供 little_energy EKF 节点使用（x = roll_angle, header.stamp = 图像采集时刻）
@@ -151,7 +155,7 @@ int main(int argc, char * argv[]) {
                     double dist_B = angular_diff(yaw, state->last_yaw_B);
                     // Prefer the most recently active slot;
                     // only switch if the other slot is significantly closer (in radians)
-                    constexpr double SWITCH_THRESHOLD = 0.3;  // ~17 degrees
+                    const double SWITCH_THRESHOLD = node->get_parameter("switch_threshold").as_double();
                     bool assign_to_A;
                     if (state->stale_A <= state->stale_B) {
                         assign_to_A = (dist_A - dist_B < SWITCH_THRESHOLD);
@@ -212,7 +216,7 @@ int main(int argc, char * argv[]) {
 
             // --- Age update with identity check, then target selection ---
             // If yaw jumps more than this threshold, treat it as a new identity
-            constexpr double IDENTITY_THRESHOLD = 0.4;  // ~23 degrees
+            const double IDENTITY_THRESHOLD = node->get_parameter("identity_threshold").as_double();
 
             // Slot A age
             if (std::isnan(slot_A)) {
