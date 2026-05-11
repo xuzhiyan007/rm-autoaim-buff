@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 
 #include <energy_fitting/srv/predict_energy.hpp>
 #include <ceres/ceres.h>
@@ -74,14 +75,13 @@ public:
         theta0_est_ = initial_theta0_;
 
         // Initialize state
-        first_measurement_    = true;
-        estimation_valid_     = false;
-        start_time_stamp_     = 0.0;
-        boundary_stuck_count_ = 0;
+        start_time_initialized_ = false;
+        estimation_valid_        = false;
+        boundary_stuck_count_    = 0;
 
-        // Create subscriber
-        position_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-            "/ene_pnp_yaw", 100,
+        // Create subscriber (订阅带图像采集时间戳的 cos(5θ) 话题)
+        position_subscription_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+            "/ene_pnp_roll_angles_stamped", 100,
             std::bind(&BigEnergyEKFNode::measurementCallback, this, std::placeholders::_1));
 
         // Create publishers
@@ -200,20 +200,29 @@ private:
     // ─────────────────────────── Callbacks ────────────────────────────
 
     /**
-     * @brief Service callback: predict angular difference over request->dt seconds
+     * @brief Service callback: predict angular difference from last capture to hit_time
+     *
+     * 预测区间：从最后一帧图像采集时刻 → 打中时刻
+     * 使用与 Ceres 拟合严格一致的时间轴（以首帧采集时刻为零点），
+     * 消除采集时刻与拟合时刻不对应的问题。
      */
     void predictEnergyCallback(
         const std::shared_ptr<energy_fitting::srv::PredictEnergy::Request> request,
         std::shared_ptr<energy_fitting::srv::PredictEnergy::Response> response)
     {
-        if (!estimation_valid_ || position_buffer_.empty()) {
+        if (!estimation_valid_ || position_buffer_.empty() || !start_time_initialized_) {
             response->delta_mu = 0.0;
             response->success  = false;
             return;
         }
 
-        double t_current = position_buffer_.back().timestamp;
-        double t_future  = t_current + request->dt;
+        // 将请求中的打中时刻转换为 rclcpp::Time
+        rclcpp::Time hit_time(request->hit_time);
+
+        // t_current：最后一帧采集时刻在拟合时间轴上的坐标
+        // t_future ：打中时刻在同一时间轴上的坐标
+        double t_current = (last_capture_time_ - start_time_).seconds();
+        double t_future  = (hit_time - start_time_).seconds();
 
         double theta_current = calculateTheta(a_est_, b_est_, theta0_est_, t_current);
         double theta_future  = calculateTheta(a_est_, b_est_, theta0_est_, t_future);
@@ -223,22 +232,32 @@ private:
     }
 
     /**
-     * @brief Measurement callback: receive raw yaw angle from /ene_pnp_yaw and buffer it
+     * @brief Measurement callback: receive stamped cos(5θ) from /ene_pnp_roll_angles_stamped
      *
-     * The topic publishes the raw atan2-based yaw angle in [-π, π] (radians).
-     * Continuity (unwrap) is applied later in updateTimerCallback.
+     * header.stamp = 图像采集时刻（由上游透传）
+     * vector.x    = cos(5*theta)，已由上游计算，无需重新计算
+     * 使用图像采集时间戳而非 this->now()，保证与 Ceres 拟合所用时间轴严格对应。
      */
-    void measurementCallback(const std_msgs::msg::Float64::SharedPtr msg)
+    void measurementCallback(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
     {
-        if (first_measurement_) {
-            start_time_stamp_ = this->now().seconds();
-            first_measurement_ = false;
+        // 使用消息中携带的图像采集时间戳
+        rclcpp::Time capture_time(msg->header.stamp);
+
+        // 首帧到达时，将时间零点锁定为该帧的采集时刻
+        if (!start_time_initialized_) {
+            start_time_          = capture_time;
+            last_capture_time_   = capture_time;
+            start_time_initialized_ = true;
+            RCLCPP_INFO(this->get_logger(),
+                        "Time origin locked to first capture timestamp: %.3f s",
+                        capture_time.seconds());
         }
 
-        double timestamp = this->now().seconds() - start_time_stamp_;
-        double angle = msg->data;  // raw yaw angle in radians, bounded [-π, π]
+        double timestamp  = (capture_time - start_time_).seconds();
+        double cos5_angle = msg->vector.x;  // cos(5*theta)，由上游透传，无需重新计算
 
-        position_buffer_.push_back({timestamp, 0.0, 0.0, angle});
+        last_capture_time_ = capture_time;
+        position_buffer_.push_back({timestamp, 0.0, 0.0, cos5_angle});
 
         // Keep buffer bounded
         while (position_buffer_.size() > static_cast<size_t>(window_size_ * 2)) {
@@ -249,12 +268,11 @@ private:
     /**
      * @brief Timer callback: run Ceres sliding-window optimization
      *
-     * Mirrors the approach in parameter_estimator_node.cpp:
      *   1. Extract the latest `window_size_` samples
      *   2. Apply time-based weights (newer = higher weight, range [0.5, 2.0])
-     *   3. Unwrap angle sequence for continuity
-     *   4. Solve nonlinear least-squares with Levenberg-Marquardt
-     *   5. Detect and reset boundary-stuck parameters
+     *   3. Solve nonlinear least-squares with Levenberg-Marquardt
+     *      (cos(5θ) is stored directly in the buffer from upstream, no recomputation needed)
+     *   4. Detect and reset boundary-stuck parameters
      */
     void updateTimerCallback()
     {
@@ -262,16 +280,15 @@ private:
             return;
         }
 
-        // ── 1. Extract sliding window and pre-compute cos(5*angle) ──
-        // cos(5*theta) is used as the fitting target:
-        //   - Immune to target-blade jumps of 2*pi/5 (cos(5*(theta+2pi/5)) = cos(5*theta))
-        //   - No angle unwrapping needed (bounded in [-1, 1])
+        // ── 1. Extract sliding window ──
+        // cos(5*theta) is already stored in position_buffer_[i].angle (set by measurementCallback).
+        // No recomputation needed: immune to target-blade jumps of 2*pi/5 and bounded in [-1,1].
         std::vector<double> times, cos5_angles, weights;
         for (size_t i = position_buffer_.size() - window_size_;
              i < position_buffer_.size(); ++i)
         {
             times.push_back(position_buffer_[i].timestamp);
-            cos5_angles.push_back(std::cos(5.0 * position_buffer_[i].angle));
+            cos5_angles.push_back(position_buffer_[i].angle);  // 已是 cos(5*theta)
 
             // Time-weighted: older→0.5, newest→2.0
             double time_weight =
@@ -409,7 +426,7 @@ private:
     // ──────────────────────── Member variables ─────────────────────────
 
     // ROS interfaces
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr position_subscription_;
+    rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr position_subscription_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr prediction_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr predicted_x_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr predicted_z_publisher_;
@@ -440,8 +457,9 @@ private:
     std::deque<PositionData> position_buffer_;
 
     // Time tracking
-    double start_time_stamp_;
-    bool   first_measurement_;
+    rclcpp::Time start_time_;
+    rclcpp::Time last_capture_time_;  // 最后一帧图像采集时刻（由上游 header.stamp 透传）
+    bool start_time_initialized_{false};  // 首帧到达前为 false，零点尚未锁定
 };
 
 int main(int argc, char * argv[])

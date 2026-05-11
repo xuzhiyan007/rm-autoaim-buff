@@ -134,9 +134,13 @@ private:
     }
 
     auto predict_req = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
-    predict_req->dt = dt_ + FIRE_LATENCY;
+    // 传入打中时刻的绝对时间戳（当前时刻 + 飞行时间 + 发射延迟）
+    // big_energy 节点将以最后一帧图像采集时刻为起点，此时刻为终点，计算 delta_mu
+    rclcpp::Time hit_time = this->now() + rclcpp::Duration::from_seconds(dt_ + FIRE_LATENCY);
+    predict_req->hit_time = hit_time;
 
-    RCLCPP_INFO(this->get_logger(), "Calling /predict_energy_big (async) with dt=%.3f", predict_req->dt);
+    RCLCPP_INFO(this->get_logger(), "Calling /predict_energy_big (async) with hit_time=%.3f s (dt=%.3f + latency=%.3f)",
+                hit_time.seconds(), dt_, FIRE_LATENCY);
 
     predict_client_->async_send_request(predict_req,
       [this](rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future) {
