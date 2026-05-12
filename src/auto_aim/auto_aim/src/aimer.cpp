@@ -81,9 +81,9 @@ Command Aimer::aim(
   bool converged = false;
   double prev_fly_time = trajectory0.fly_time;
   tools::Trajectory current_traj = trajectory0;
-  std::vector<Target> iteration_target(20, target);  // 创建10个目标副本用于迭代预测
+  std::vector<Target> iteration_target(10, target);  // 创建10个目标副本用于迭代预测
 
-  for (int iter = 0; iter < 20; ++iter) {
+  for (int iter = 0; iter < 10; ++iter) {
     // 预测目标在 future + prev_fly_time 时刻的位置
     auto predict_time = future + std::chrono::microseconds(static_cast<int>(prev_fly_time * 1e6));
     iteration_target[iter].predict(predict_time);
@@ -91,9 +91,9 @@ Command Aimer::aim(
     // 计算瞄准点
     auto aim_point = choose_aim_point(iteration_target[iter]);
     debug_aim_point = aim_point;
-    if (!aim_point.valid) {
-      return {false, false, 0, 0};
-    }
+    // if (!aim_point.valid) {
+    //   return {false, false, 0, 0};
+    // }
 
     // 计算新弹道
     Eigen::Vector3d xyz = aim_point.xyza.head(3);
@@ -101,11 +101,11 @@ Command Aimer::aim(
     current_traj = tools::Trajectory(bullet_speed, d, xyz.z());
 
     // 检查弹道是否可解
-    if (current_traj.unsolvable) {
-      //tools::logger()->debug("[Aimer] Unsolvable trajectory in iter {}: speed={:.2f}, d={:.2f}, z={:.2f}", iter + 1,bullet_speed, d, xyz.z());
-      debug_aim_point.valid = false;
-      return {false, false, 0, 0};
-    }
+    // if (current_traj.unsolvable) {
+    //   //tools::logger()->debug("[Aimer] Unsolvable trajectory in iter {}: speed={:.2f}, d={:.2f}, z={:.2f}", iter + 1,bullet_speed, d, xyz.z());
+    //   debug_aim_point.valid = false;
+    //   return {false, false, 0, 0};
+    // }
 
     // 检查收敛条件
     if (std::abs(current_traj.fly_time - prev_fly_time) < 0.001) {
@@ -119,7 +119,9 @@ Command Aimer::aim(
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
-
+  if (converged == false) {
+    return {false, false, 0, 0};
+  }
   // pitch = final_xyz.z();
   return {true, false, yaw, pitch};
 }
@@ -207,13 +209,13 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
   for (int i = 0; i < armor_num; i++) {
     const double da = delta_angle_list[i];
-
+  
     // 已转过中轴 → 放弃
-    //if (omega > 0 && da > 30 / 57.3) continue;
-    //if (omega < 0 && da < -30 / 57.3) continue;
+    //if (omega > 0 && da > 0) continue;
+    //if (omega < 0 && da < 0) continue;
 
     // 超出可射击窗口 → 还没转进视野
-    if (std::abs(da) > coming_angle) continue;
+    //if (std::abs(da) > coming_angle) continue;
 
     // coming 侧里 |da| 越小越接近正面
     if (std::abs(da) < best_abs) {

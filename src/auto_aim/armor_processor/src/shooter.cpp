@@ -17,7 +17,7 @@ Shooter::Shooter(const std::string & config_path) : last_command_{false, false, 
   auto_fire_ = yaml["auto_fire"].as<bool>();
   fire_hold_duration_ = yaml["fire_hold_time"].IsDefined()
                           ? yaml["fire_hold_time"].as<double>()
-                          : 0.04;  // s
+                          : 0;  // s
 }
 
 bool Shooter::shoot(

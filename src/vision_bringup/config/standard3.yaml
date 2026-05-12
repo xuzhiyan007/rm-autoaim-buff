@@ -6,11 +6,11 @@ outpost_max_temp_lost_count: 75
 #####-----aimer参数-----#####
 yaw_offset: -0.8 # degree -2.5
 pitch_offset: -3.5 # degree 2
-comming_angle: 60 # degree
+comming_angle: 30 # degree
 leaving_angle: 18 # degree
 decision_speed: 7 # rad/s
-high_speed_delay_time: 0 #0.075 # s
-low_speed_delay_time: 0.075  # s planner use this value
+high_speed_delay_time: 0.038 #0.075 # s
+low_speed_delay_time: 0  # s planner use this value
 #####-----shooter参数-----#####
 first_tolerance: 1.35 #1.5 # 近距离射击容差，degree
 second_tolerance: 1.35 #1.2 # 远距离射击容差，degree

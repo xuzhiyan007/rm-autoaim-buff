@@ -51,8 +51,8 @@ add_library(auto_aim SHARED
 
 target_link_libraries(auto_aim
   PUBLIC
-    tools::tools
-    rclcpp::rclcpp
+  tools::tools
+  rclcpp::rclcpp
     fmt::fmt
     CURL::libcurl
     TIFF::TIFF

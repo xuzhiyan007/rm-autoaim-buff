@@ -10,6 +10,7 @@
 #include <rclcpp/subscription.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include "serial_driver/serial_driver.hpp"
@@ -87,6 +88,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
   rclcpp::Publisher<jlcv_interfaces::msg::GameStatus>::SharedPtr game_status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr latency_pub_;
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr robot_mode_pub_;
 
   // message_sub
   rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr energy_target_sub_;

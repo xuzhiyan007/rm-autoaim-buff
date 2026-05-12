@@ -32,12 +32,14 @@
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
-#include <message_filters/subscriber.h>
+#include <message_filters/subscriber.hpp>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/message_filter.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include<sensor_msgs/msg/joint_state.hpp>
+#include <std_msgs/msg/u_int8.hpp>
+#include <atomic>
 
 #include "tools/recorder.hpp"
 #include "tools/ros_time.hpp"
@@ -72,6 +74,10 @@ private:
   // Set Mode
   uint8_t Mode = 2;
   rclcpp::Service<jlcv_interfaces::srv::SetMode>::SharedPtr set_mode_service_;
+
+  // /robot_mode 门控（0=SMALL_ENERGY, 1=BIG_ENERGY, 2=ARMOR）
+  std::atomic<uint8_t> robot_mode_{2};  // 默认 ARMOR，serial_driver 启动后快速修正
+  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_sub_;
 
   // Camera center
   cv::Point2f cam_center_;
