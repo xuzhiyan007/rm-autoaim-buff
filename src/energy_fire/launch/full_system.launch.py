@@ -76,7 +76,7 @@ def generate_launch_description():
     # ============================
     dt_arg = DeclareLaunchArgument(
         'dt',
-        default_value='0.0',
+        default_value='1.0',
         description='初始预测时间 (s),会被弹道解算的飞行时间动态更新'
     )
 
