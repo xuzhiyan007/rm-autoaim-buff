@@ -133,6 +133,8 @@ private:
         this->declare_parameter("kp0_hold_max_pixel_dist", 30.0);  // kp[0]补帧阈値：圆形关键点平均偏移上限（像素）
         this->declare_parameter("enable_kp0_hold", true);            // 是否开启 kp[0] 补帧策略
         this->declare_parameter("enable_mode_gate", true);           // 是否启用 /robot_mode 门控
+        this->declare_parameter("roi_expand_ratio", 8.0 / 3.0);     // R/Circle ROI 扩展倍数（base_box → expanded_roi）
+        this->declare_parameter("r_roi_base_ratio", 3.0 / 5.0);     // R base box 相对圆形包围盒（c_base_box）的宽高比例
 
         // 获取参数并展开路径
         model_path_ = expandPath(this->get_parameter("model_path").as_string());
@@ -160,6 +162,8 @@ private:
         kp0_hold_max_pixel_dist_ = static_cast<float>(this->get_parameter("kp0_hold_max_pixel_dist").as_double());
         enable_kp0_hold_ = this->get_parameter("enable_kp0_hold").as_bool();
         enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
+        roi_expand_ratio_ = static_cast<float>(this->get_parameter("roi_expand_ratio").as_double());
+        r_roi_base_ratio_ = static_cast<float>(this->get_parameter("r_roi_base_ratio").as_double());
         this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
         std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
         load_sift_params(sift_params_path);
@@ -529,8 +533,8 @@ private:
 
                     // 辅助 lambda：将 base_box 扩大后提取灰度并按指定 scale 缩放
                     auto expand_and_extract = [&](const cv::Rect& base_box, cv::Mat& out_roi_gray_small, cv::Rect& out_expanded_roi, float roi_scale) -> bool {
-                        int expand_width = (int)(base_box.width * 8.0f / 3.0f);
-                        int expand_height = (int)(base_box.height * 8.0f / 3.0f);
+                        int expand_width = (int)(base_box.width * roi_expand_ratio_);
+                        int expand_height = (int)(base_box.height * roi_expand_ratio_);
                         int expand_x = base_box.x - (expand_width - base_box.width) / 2;
                         int expand_y = base_box.y - (expand_height - base_box.height) / 2;
 
@@ -588,8 +592,8 @@ private:
                         MatchResult res;
                         if (all_keypoints[idx].size() > 0 && all_keypoints[idx][0].visibility > 0.5f) {
                             const auto& kp0 = all_keypoints[idx][0];
-                            int r_roi_w = has_c_base ? (int)(c_base_box.width  * 3.0f / 5.0f) : box.width;
-                            int r_roi_h = has_c_base ? (int)(c_base_box.height * 3.0f / 5.0f) : box.height;
+                            int r_roi_w = has_c_base ? (int)(c_base_box.width  * r_roi_base_ratio_) : box.width;
+                            int r_roi_h = has_c_base ? (int)(c_base_box.height * r_roi_base_ratio_) : box.height;
                             cv::Rect r_base_box((int)(kp0.x - r_roi_w / 2.0f), (int)(kp0.y - r_roi_h / 2.0f), r_roi_w, r_roi_h);
                             r_base_box &= cv::Rect(0, 0, image.cols, image.rows);
 
@@ -1329,6 +1333,8 @@ private:
     float kp0_hold_max_pixel_dist_ = 30.0f;
     bool enable_kp0_hold_ = true;
     bool enable_mode_gate_ = true;
+    float roi_expand_ratio_ = 8.0f / 3.0f;  // R/Circle ROI 扩展倍数
+    float r_roi_base_ratio_ = 3.0f / 5.0f;  // R base box 相对圆形包围盒的比例
 
     float template_r_scale_;
     float template_r_roi_scale_;
