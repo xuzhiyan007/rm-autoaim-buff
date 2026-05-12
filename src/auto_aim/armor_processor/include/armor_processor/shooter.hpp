@@ -26,7 +26,12 @@ private:
   double judge_distance_;
   double first_tolerance_;
   double second_tolerance_;
+  double last_v2 = 0 ;
+  double last__v2 = 0;
   bool auto_fire_;
+  double max_distance_tolerance_;
+  std::chrono::steady_clock::time_point fire_hold_until_{};
+  double fire_hold_duration_;
 };
 }  // namespace auto_aim
 

@@ -31,7 +31,6 @@ find_package(CURL REQUIRED)
 find_package(TIFF REQUIRED)
 
 find_package(ament_cmake_auto REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(OpenVINO REQUIRED)
@@ -89,5 +88,4 @@ endif()
 
 ament_auto_package(
   INSTALL_TO_SHARE
-  # USE_SCOPED_HEADER_INSTALL_DIR
 )

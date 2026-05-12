@@ -23,6 +23,7 @@ Tracker::Tracker(const std::string & config_path,const rclcpp::Time & t)
   max_temp_lost_count_ = yaml["max_temp_lost_count"].as<int>();
   outpost_max_temp_lost_count_ = yaml["outpost_max_temp_lost_count"].as<int>();
   normal_temp_lost_count_ = max_temp_lost_count_;
+  target_.name = ArmorName::not_armor;
 }
 
 std::string Tracker::state() const { return state_; }
@@ -49,7 +50,9 @@ std::list<Target> Tracker::track(
   //          solver_.oupost_reprojection_error(a, 27.5 * CV_PI / 180.0) <
   //            solver_.oupost_reprojection_error(a, -15 * CV_PI / 180.0);
   // });
-
+  armors.remove_if([this](const Armor_point & a) {
+    return a.name == ArmorName::not_armor;
+  });
       // Fill the distance to image center
   // Change the distance to rank
   // 优先选择靠近图像中心的装甲板
@@ -59,8 +62,14 @@ std::list<Target> Tracker::track(
   });
 
   // // 按优先级排序，优先级最高在首位(优先级越高数字越小，1的优先级最高)
-  // armors.sort(
-  //   [](const auto_aim::Armor & a, const auto_aim::Armor & b) { return a.priority < b.priority; });
+  armors.sort(
+    [](const Armor_point & a, const Armor_point & b) { return a.priority < b.priority; });
+  // std::cout<<"name: "<<armors.front().name<<"prio: "<<armors.front().priority<<"\n";
+
+  // if(state_ != "lost" && !armors.empty() && armors.front().priority == ArmorPriority::first && armors.front().name != target_.name)
+  // {
+  //   state_ == "lost";
+  // }
 
   bool found;
   if (state_ == "lost") {
@@ -82,15 +91,16 @@ std::list<Target> Tracker::track(
     return {};
   }
 
-  // // 收敛效果检测：
-  // if (
-  //   std::accumulate(
-  //     target_.ekf().recent_nis_failures.begin(), target_.ekf().recent_nis_failures.end(), 0) >=
-  //   (0.4 * target_.ekf().window_size)) {
-  //   //tools::logger()->debug("[Target] Bad Converge Found!");
-  //   state_ = "lost";
-  //   return {};
-  // }
+  // 收敛效果检测：
+  if (
+    std::accumulate(
+      target_.ekf().recent_nis_failures.begin(), target_.ekf().recent_nis_failures.end(), 0) >=
+    (0.4 * target_.ekf().window_size)) {
+    //tools::logger()->debug("[Target] Bad Converge Found!");
+    std::cout<<"[Target] Bad Converge Found!\n";
+    state_ = "lost";
+    return {};
+  }
 
   if (state_ == "lost") return {};
 
@@ -245,9 +255,18 @@ void Tracker::state_machine(bool found)
 bool Tracker::set_target(std::list<Armor_point> & armors, rclcpp::Time t)
 {
   if (armors.empty()) return false;
-
+  
   auto & armor = armors.front();
   solver_->solve(armor);
+  while (armor.xyz_in_world.norm()>6)
+  {
+    armors.pop_front();
+    if (armors.empty()) return false;
+    
+    armor = armors.front();
+    solver_->solve(armor);
+  }
+  
   armors_track_.push_back(armor);
 
   // 根据兵种优化初始化参数
@@ -261,7 +280,7 @@ bool Tracker::set_target(std::list<Armor_point> & armors, rclcpp::Time t)
   }
 
   else if (armor.name == ArmorName::outpost) {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 81, 0.4, 100, 1e-4, 0, 0}};
+    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 121, 0.4, 100, 1e-4, 0, 0}};
     target_ = Target(armor, t, 0.2765, 3, P0_dig);
   }
 
@@ -297,6 +316,10 @@ bool Tracker::update_target(std::list<Armor_point> & armors, rclcpp::Time t)
   for (auto & armor : armors) {
     if (armor.name != target_.name || armor.type != target_.armor_type) continue;
     solver_->solve(armor);
+    if(armor.xyz_in_world.norm()>6.4){
+      found_count -= 1;
+      continue;
+    }
     
     armors_track_.push_back(armor);
 
@@ -304,8 +327,11 @@ bool Tracker::update_target(std::list<Armor_point> & armors, rclcpp::Time t)
   }
   target_.found_ = found_count;
 
-  if (found_count == 0) return false;
+  if (found_count <= 0) return false;
   return true;
 }
+  // int Tracker::getTargetID(){
+  //   return target_.now_id;
+  // }
 
 }  // namespace auto_aim

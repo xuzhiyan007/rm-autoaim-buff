@@ -69,7 +69,7 @@ Target::Target(double x, double vyaw, double radius, double h) : armor_num_(4)
 void Target::predict(rclcpp::Time t)
 {
   auto dt = tools::delta_time(t, t_);
-  // std::cout<<"dt  "<<dt<<"\n";
+  std::cout<<"dt  "<<dt<<"\n";
   predict(dt);
   t_ = t;
 }
@@ -99,7 +99,7 @@ void Target::predict(double dt)
   // https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/master/07-Kalman-Filter-Math.ipynb
   double v1, v2 ,q_r;
   if (name == ArmorName::outpost) {
-    v1 = 10;   // 前哨站加速度方差
+    v1 = 0;   // 前哨站加速度方差 10
     v2 = 0.1;  // 前哨站角加速度方差
   } else {
     v1 = 100;  // 加速度方差 sigma2_q_xyz
@@ -117,8 +117,8 @@ void Target::predict(double dt)
     {b * v1, c * v1,      0,      0,      0,      0,      0,      0, 0, 0, 0},
     {     0,      0, a * v1, b * v1,      0,      0,      0,      0, 0, 0, 0},
     {     0,      0, b * v1, c * v1,      0,      0,      0,      0, 0, 0, 0},
-    {     0,      0,      0,      0, a * v1, b * v1,      0,      0, 0, 0, 0},
-    {     0,      0,      0,      0, b * v1, c * v1,      0,      0, 0, 0, 0},
+    {     0,      0,      0,      0, a * v1 , b * v1,      0,      0, 0, 0, 0},
+    {     0,      0,      0,      0, b * v1 , c * v1,      0,      0, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0, a * v2, b * v2, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0, b * v2, c * v2, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0,      0,      0, q_r, 0, 0},
@@ -135,7 +135,7 @@ void Target::predict(double dt)
   };
 
   // 前哨站转速特判
-  if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2){
+  if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2) {
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
     if(jumped && abs(this->ekf_.x[10])>0.06)
     {
@@ -143,9 +143,8 @@ void Target::predict(double dt)
       this->ekf_.x[10] = abs(this->ekf_.x[10]-0.1)<abs(this->ekf_.x[10]-0.2) ? 0.1 : 0.2;
       this->ekf_.x[10] *= sign_;  
     }
-  }
   //   this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 1.7 : -1.7;
-
+  }
   // this->ekf_.x[4] = -0.1;
   // this->ekf_.x[5] = 0;
   ekf_.predict(F, Q, f);
@@ -191,8 +190,11 @@ void Target::update(const Armor_point & armor)
 
   //id：筛选出和被观测的armor的yaw_error最小的状态对应id
   if (id != 0) jumped = true;  //jumped：是否观测到第二块板
-  v_id[id] = 1;
-
+  if(id<4 && id>=0)v_id[id] = 1;
+  if (armor_num_ == 3 && id >= 0 && id < 3) {
+    z_at_id_[id] = armor.xyz_in_world[2];
+  }
+  now_id = id;
   if (id != last_id) {
     is_switch_ = true;
   } else {
@@ -206,12 +208,11 @@ void Target::update(const Armor_point & armor)
   if(!rebuilt_ && check_rebuild_optpost())
   {
     rebuild_outpost(armor.xyz_in_world[2],id);
-    rebuilt_ = true;
   }
 
   last_id = id;
 
-  // std::cout<<"!!!id: "<<id<<"\n";
+  std::cout<<"!!!id: "<<id<<"\n";
   update_ypda(armor, id);
 }
 
@@ -222,42 +223,34 @@ bool Target::check_rebuild_optpost()
 
 void Target::rebuild_outpost(double z_now,int& id)
 {
-  //ekf_.x[4] 中 Z 取三板中最高的，h为-0.1m;满足z = x[4] + x[10]*id; id为逆时针编号。
-  auto x =  this->ekf_.x;
-  auto pre_z = x[4];
-  auto pre_h = x[10];
-  auto h_now = z_now - pre_z;
-  auto k = h_now/pre_h;
-  if(k>0){
-    if(pre_h>0){
-      this->ekf_.x[4] += pre_h*2;
-      this->ekf_.x[6] += 2 * CV_PI / armor_num_;
-      this->ekf_.x[10] *=-1;
-      id -= 1;
-    }
-  }else{
-    if(abs(k-(-1))<abs(k-(-0.5))){
-      if(pre_h>0){
-        this->ekf_.x[4] += pre_h;
-        this->ekf_.x[6] -= 2 * CV_PI / armor_num_;
-        this->ekf_.x[10] *=-1;
-        id+=1;
-      }else{
-        this->ekf_.x[4] -= pre_h;
-        this->ekf_.x[6] -= 2 * CV_PI / armor_num_;
-        id +=1;
-      }
-    }else{
-      if(pre_h>0){
-        this->ekf_.x[4] += pre_h;
-        this->ekf_.x[6] += 2 * CV_PI / armor_num_;
-        this->ekf_.x[10] *=-0.5;
-        id -= 1;
-      }
-    }
+  // 约定：x[4] = 三板中最高板的 z，x[10] = -0.1m，z(id) = x[4] + x[10]*id
+  // 物理 H→M→L 必须沿 id 递增方向（与模型角度公式 angle = x[6] + id*2π/N 同向）
+  // 用 z 数据判方向：从 id_high 走 id+1 该是 M（z 比走 id-1 那块大）
+  z_at_id_[id] = z_now;
+
+  int id_high = 0;
+  for (int i = 1; i < armor_num_; i++) {
+    if (z_at_id_[i] > z_at_id_[id_high]) id_high = i;
   }
 
-  id = (id+3)%3;
+  double z_next = z_at_id_[(id_high + 1) % armor_num_];
+  double z_prev = z_at_id_[(id_high + 2) % armor_num_];
+
+  // 物理 H→M→L 沿 id 递减方向时，模型角度公式不自洽，本帧跳过等下次更新
+  if (z_next <= z_prev) return;
+
+  ekf_.x[4]  = z_at_id_[id_high];
+  ekf_.x[6]  = tools::limit_rad(ekf_.x[6] + id_high * 2 * CV_PI / armor_num_);
+  ekf_.x[10] = -0.1;
+  id = (id - id_high + armor_num_) % armor_num_;
+
+  // 把被 rebuild 改过/影响的状态对应的 P 放回较大值，
+  // 让 EKF 相信新观测、快速把 x[4] 等均到真值，避免 pitch 多秒慢收敛
+  ekf_.P(4, 4) = 1.0;     // 高板 z
+  ekf_.P(6, 6) = 0.4;     // 角度（手工平移过 id_high*2π/N）
+  ekf_.P(7, 7) = 100.0;   // vyaw
+
+  rebuilt_ = true;
 }
 void Target::update_ypda(const Armor_point & armor, int id)
 {
@@ -346,7 +339,6 @@ bool Target::convergened()
 Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
 {
   auto angle = tools::limit_rad(x[6] + id * 2 * CV_PI / armor_num_);
-  
   auto use_l_h = (armor_num_ == 4) && (id == 1 || id == 3);
   auto use_h = (armor_num_ == 3) && (id == 1 || id == 2);
   // use_l_h = 0;
@@ -354,10 +346,8 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto r = (use_l_h) ? x[8] + x[9] : x[8];
   auto armor_x = x[0] - r * std::cos(angle);
   auto armor_y = x[2] - r * std::sin(angle);
-  // auto armor_z = high_speed_mode ? (use_l_h) ? x[4] + x[10] : x[4] : x[4];
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
-  armor_z =(armor_num_ == 3) ? (use_h) ? rebuilt_ ? x[4] + x[10]*id : x[4] + x[10] : x[4] : armor_z;
-  std::cout << armor_num_ << "..."<<armor_z << std::endl;
+  armor_z = (armor_num_ == 3) ? (use_h) ? rebuilt_ ? x[4] + x[10]*id : x[4] + x[10] : x[4] : armor_z;
   return {armor_x, armor_y, armor_z};
 }
 

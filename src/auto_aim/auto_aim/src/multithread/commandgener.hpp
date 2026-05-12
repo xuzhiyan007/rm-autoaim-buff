@@ -38,7 +38,7 @@ private:
   };
 
   io::CBoard & cboard_;
-  auto_aim::Shooter & er_;
+  auto_aim::Shooter & shooter_;
   auto_aim::Aimer & aimer_;
   tools::Plotter & plotter_;
 

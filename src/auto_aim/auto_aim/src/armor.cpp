@@ -7,25 +7,40 @@
 namespace auto_aim
 {
 
-    Armor_point::Armor_point( uint8_t type,uint8_t name,std::vector<cv::Point2f> pointsfixed)
-: type(static_cast<ArmorType>(type)), name(static_cast<ArmorName>(name)), points(pointsfixed)
+    Armor_point::Armor_point( uint8_t type,uint8_t name,std::vector<cv::Point2f> points_)
+: type(static_cast<ArmorType>(type)), name(static_cast<ArmorName>(name)), points(std::move(points_))
 {
   cv::Point2f img_center(1440 / 2, 1080 / 2);  // TODO
-  cv::Point2f center = (points[0] + points[1] + points[2] + points[3])/4;
+  // std::cout<<"size:"<<points.size()<<"\n";
+  if(points.size()!=4)
+  {
+    name = ArmorName::not_armor;
+ 
+  }else{
+    cv::Point2f center = (points[0] + points[1] + points[2] + points[3])/4.0f;
 
-  if (name == ArmorName::two){
-    distance_to_image_center = 1e5;
+    if (name == ArmorName::two){
+      distance_to_image_center = 1e5;
+    }
+    else if(name == ArmorName::one){
+      distance_to_image_center = 0;
+    }
+    else if(name == ArmorName::sentry){
+      distance_to_image_center = cv::norm(center - img_center)*2;
+    }
+    else{ 
+      distance_to_image_center = cv::norm(center - img_center);
+    }
+    if(name == ArmorName::one)
+    {
+      priority = ArmorPriority::first;
+    }else if(name == ArmorName::sentry)
+    {
+      priority = ArmorPriority::third;
+    }else{
+      priority = ArmorPriority::second;
+    }
   }
-  else if(name == ArmorName::one){
-    distance_to_image_center = 0;
-  }
-  else if(name == ArmorName::sentry){
-    distance_to_image_center = cv::norm(center - img_center)*2;
-  }
-  else{ 
-    distance_to_image_center = cv::norm(center - img_center);
-  }
-
 }
 
 Lightbar::Lightbar(const cv::RotatedRect & rotated_rect, std::size_t id)

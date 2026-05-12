@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>eigen</depend>
   <depend>tools</depend>
+  <depend>yaml-cpp</depend>
   <depend>rclcpp</depend>
   <build_depend></build_depend>
   <exec_depend></exec_depend>

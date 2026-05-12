@@ -14,6 +14,8 @@
 #include <std_srvs/srv/trigger.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#include <std_msgs/msg/u_int16.hpp>
+#include <std_msgs/msg/float64.hpp>
 
 // STD
 #include <memory>
@@ -24,7 +26,7 @@
 #include "jlcv_interfaces/msg/armors.hpp"
 #include "jlcv_interfaces/msg/target.hpp"
 #include "jlcv_interfaces/msg/measurement.hpp"
-#include "std_msgs/msg/float64.hpp"
+
 
 
 #include "auto_aim/aimer.hpp"
@@ -34,8 +36,25 @@
 
 #include "tools/ros_time.hpp"
 
+// #include <stdexcept>
+// #define THROW_ERR(msg) throw LocationException(msg, __FILE__, __LINE__)
+
 namespace auto_aim
 {
+
+// struct LocationException : public std::runtime_error
+// {
+//     std::string file;
+//     int line;
+
+//     LocationException(const std::string& msg, const char* file_, int line_)
+//         : std::runtime_error(msg), file(file_), line(line_)
+//     {}
+// };
+
+
+
+
 // using tf2_filter = tf2_ros::MessageFilter<jlcv_interfaces::msg::Armors>;
 class ArmorProcessorNode : public rclcpp::Node
 {
@@ -45,7 +64,13 @@ public:
 private:
 
   //rclcpp::Clock steady_clock_{RCL_ROS_TIME};
-  
+  uint16_t bullet_num = 0;
+  rclcpp::Subscription<std_msgs::msg::UInt16>::SharedPtr bullet_num_sub_;
+  void bulletCallback(const std_msgs::msg::UInt16::SharedPtr msg);
+
+
+
+
   void armorsCallback(const jlcv_interfaces::msg::Armors::SharedPtr armors_ptr);
 
   // void publishMarkers(const jlcv_interfaces::msg::Target & target_msg);
@@ -71,6 +96,7 @@ private:
 
   // Measurement publisher
   rclcpp::Publisher<jlcv_interfaces::msg::Measurement>::SharedPtr measure_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr debug_pub_;
 
   // Publisher
   // rclcpp::Publisher<jlcv_interfaces::msg::Target>::SharedPtr target_pub_;
@@ -95,7 +121,6 @@ private:
   std::unique_ptr<auto_aim::Aimer> aimer_;
   std::unique_ptr<Shooter> shooter_;
   
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr yaw_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr gimbal_command_pub_;
   geometry_msgs::msg::Vector3 command_;
 
@@ -104,7 +129,6 @@ private:
 
   //debug
   bool show_mark_;
-  double bullet_speed;
 };
 
 }  // namespace auto_aim

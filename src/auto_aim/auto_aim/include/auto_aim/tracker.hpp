@@ -36,7 +36,8 @@ public:
 
   void set_R_gimbal2world(const Eigen::Quaterniond & q);
   Eigen::Vector3d get_gimbal_pos();
-
+  // int getTargetID();
+  
 private:
   Color enemy_color_;
   int min_detect_count_;

@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(auto_aim)
 
-if(NOT DEFINED OpenVINO_DIR AND NOT DEFINED ENV{OpenVINO_DIR})
-  set(OpenVINO_DIR "/opt/intel/openvino_2024/runtime/cmake")
-endif()
+set(OpenVINO_DIR "/opt/intel/openvino_2024/runtime/cmake")
 
 
 find_package(ament_cmake_auto REQUIRED)
@@ -18,8 +16,13 @@ find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(tools REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(yaml-cpp REQUIRED CONFIG PATHS /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp NO_DEFAULT_PATH)
 
+set(yaml-cpp_DIR /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp)
+find_package(yaml-cpp REQUIRED)
+
+# include_directories(
+#   ${YAML_CPP_INCLUDE_DIR}
+# )
 
 
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -50,18 +53,18 @@ target_link_libraries(auto_aim
   PUBLIC
     tools::tools
     rclcpp::rclcpp
-    openvino::runtime
-  PRIVATE
-    yaml-cpp::yaml-cpp
     fmt::fmt
     CURL::libcurl
     TIFF::TIFF
+    openvino::runtime
     tinympcstatic
+  PRIVATE
+    yaml-cpp::yaml-cpp
 )
 target_include_directories(auto_aim
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:include/auto_aim>
 )
 
 install(
@@ -74,13 +77,10 @@ install(
 
 # 4. 导出 Target（关键！生成 toolsConfig.cmake）
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(ament_cmake)
+ament_export_dependencies(ament_cmake yaml-cpp)
 
 
-install(
-  DIRECTORY include/
-  DESTINATION include
+ament_auto_package(
+  INSTALL_TO_SHARE
+  # USE_SCOPED_HEADER_INSTALL_DIR
 )
-
-ament_export_include_directories(include)
-ament_package()

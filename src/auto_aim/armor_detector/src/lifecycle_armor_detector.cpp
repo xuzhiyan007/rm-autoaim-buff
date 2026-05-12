@@ -83,12 +83,6 @@ LifecycleArmorDetector::LifecycleArmorDetector(const rclcpp::NodeOptions& option
       "/image_raw", rclcpp::SensorDataQoS(),
       std::bind(&LifecycleArmorDetector::ImageCallback, this, std::placeholders::_1));
 
-  // /robot_mode 门控订阅：非 ARMOR 模式时跳过图像处理
-  mode_sub_ = this->create_subscription<std_msgs::msg::UInt8>(
-      "/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)),
-      [this](const std_msgs::msg::UInt8::SharedPtr msg) {
-          robot_mode_.store(msg->data);
-      });
 
 
   tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -101,7 +95,6 @@ LifecycleArmorDetector::LifecycleArmorDetector(const rclcpp::NodeOptions& option
   flip_ = this->declare_parameter("flip", false);
   plus_pnp_ = this->declare_parameter("plus_pnp", false);
   use_record_ = this->declare_parameter("use_record", false);
-  enable_mode_gate_ = this->declare_parameter("enable_mode_gate", true);  // 是否启用 /robot_mode 门控
 
   if(debug_)
   {
@@ -137,12 +130,7 @@ void LifecycleArmorDetector::set_mode_callback(const jlcv_interfaces::srv::SetMo
 
 void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr img_msg)
 {
-  if (enable_mode_gate_ && robot_mode_.load() != 2) {
-    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
-        "[armor_detector] standby (mode=%d, waiting for ARMOR=2)",
-        static_cast<int>(robot_mode_.load()));
-    return;
-  }
+  if(1)//Mode == jlcv_interfaces::srv::SetMode::Request::ARMOR)
   {
     t_ = img_msg->header.stamp;
     armors_msg_.header = img_msg->header;
@@ -184,9 +172,9 @@ void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr im
 
     auto armors = detectArmors(std::move(img_msg));
 
+
     for (const auto& armor : armors)
     {
-
       jlcv_interfaces::msg::Armor armor_msg;
       armor_msg.type = armor.type == ArmorType::SMALL  ? 1 : 0;
       armor_msg.number = armor.label_id;
@@ -204,6 +192,9 @@ void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr im
     }
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
+
+    }else{
+    return ;
   }
 }
 
@@ -292,7 +283,6 @@ std::vector<Armor> LifecycleArmorDetector::detectArmors(sensor_msgs::msg::Image:
 
   if (debug_)
   {
-    RCLCPP_INFO(this->get_logger(), "DEBUGING!");
     // record.write(img);
     binary_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
 

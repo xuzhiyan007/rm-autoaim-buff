@@ -124,6 +124,7 @@ struct Armor_point
 {
   ArmorType type;
   ArmorName name;
+  ArmorPriority priority;
   std::vector<cv::Point2f> points;
   Eigen::Vector3d xyz_in_gimbal;  // 单位：m
   Eigen::Vector3d xyz_in_world;   // 单位：m
@@ -140,7 +141,7 @@ struct Armor_point
 
   double yaw_raw;  // rad
 
-  Armor_point( uint8_t type,uint8_t name,std::vector<cv::Point2f> pointsfixed);
+  Armor_point( uint8_t type,uint8_t name,std::vector<cv::Point2f> points_);
 };
 
 }  // namespace auto_aim

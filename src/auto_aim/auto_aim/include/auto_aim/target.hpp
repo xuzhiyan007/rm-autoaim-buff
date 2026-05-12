@@ -26,6 +26,7 @@ public:
   
   bool v_id[4];
   bool rebuilt_;
+  double z_at_id_[3] = {0.0, 0.0, 0.0};
 
   Target() = default;
   Target(
@@ -52,6 +53,8 @@ public:
   bool isinit = false;
 
   bool checkinit();
+
+  int now_id;
 
 private:
   int armor_num_;

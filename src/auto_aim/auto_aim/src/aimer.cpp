@@ -3,14 +3,12 @@
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
-#include <limits>
 #include <vector>
 
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/trajectory.hpp"
 #include "tools/ros_time.hpp"
-
 
 namespace auto_aim
 {
@@ -29,9 +27,7 @@ Aimer::Aimer(const std::string & config_path)
     left_yaw_offset_ = yaml["left_yaw_offset"].as<double>() / 57.3;    // degree to rad
     right_yaw_offset_ = yaml["right_yaw_offset"].as<double>() / 57.3;  // degree to rad
     //tools::logger()->info("[Aimer] successfully loading shootmode");
-
   }
-  
 }
 
 Command Aimer::aim(
@@ -44,8 +40,10 @@ Command Aimer::aim(
   auto ekf = target.ekf();
   double delay_time =
     target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+  
+  std::cout <<  "delay_time: " << delay_time << std::endl;
 
-  // if (bullet_speed < 14) bullet_speed = 23;
+  if (bullet_speed < 14) bullet_speed = 23;
 
   // 考虑detecor和tracker所消耗的时间，此外假设aimer的用时可忽略不计
   auto future = timestamp;
@@ -83,9 +81,9 @@ Command Aimer::aim(
   bool converged = false;
   double prev_fly_time = trajectory0.fly_time;
   tools::Trajectory current_traj = trajectory0;
-  std::vector<Target> iteration_target(10, target);  // 创建10个目标副本用于迭代预测
+  std::vector<Target> iteration_target(20, target);  // 创建10个目标副本用于迭代预测
 
-  for (int iter = 0; iter < 10; ++iter) {
+  for (int iter = 0; iter < 20; ++iter) {
     // 预测目标在 future + prev_fly_time 时刻的位置
     auto predict_time = future + std::chrono::microseconds(static_cast<int>(prev_fly_time * 1e6));
     iteration_target[iter].predict(predict_time);
@@ -101,7 +99,7 @@ Command Aimer::aim(
     Eigen::Vector3d xyz = aim_point.xyza.head(3);
     double d = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
     current_traj = tools::Trajectory(bullet_speed, d, xyz.z());
-  
+
     // 检查弹道是否可解
     if (current_traj.unsolvable) {
       //tools::logger()->debug("[Aimer] Unsolvable trajectory in iter {}: speed={:.2f}, d={:.2f}, z={:.2f}", iter + 1,bullet_speed, d, xyz.z());
@@ -121,7 +119,8 @@ Command Aimer::aim(
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
-  // double pitch = xyz0[2];
+
+  // pitch = final_xyz.z();
   return {true, false, yaw, pitch};
 }
 
@@ -163,7 +162,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   // 不考虑小陀螺
-  if (std::abs(target.ekf_x()[7]) <= 3 && target.name != ArmorName::outpost) {
+  if (std::abs(target.ekf_x()[7]) <= 4 && target.name != ArmorName::outpost) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     for (int i = 0; i < armor_num; i++) {
@@ -201,7 +200,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     leaving_angle = leaving_angle_;
   }
 
-  // 小陀螺：只打正在转向正面（coming 侧）的装甲板；若已转过中轴则放弃，等下一块
+  // 在小陀螺时，一侧的装甲板不断出现，另一侧的装甲板不断消失，显然前者被打中的概率更高
   const double omega = ekf_x[7];
   int best_id = -1;
   double best_abs = std::numeric_limits<double>::infinity();
@@ -210,8 +209,8 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     const double da = delta_angle_list[i];
 
     // 已转过中轴 → 放弃
-    if (omega > 0 && da > 0) continue;
-    if (omega < 0 && da < 0) continue;
+    //if (omega > 0 && da > 30 / 57.3) continue;
+    //if (omega < 0 && da < -30 / 57.3) continue;
 
     // 超出可射击窗口 → 还没转进视野
     if (std::abs(da) > coming_angle) continue;
