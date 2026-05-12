@@ -20,7 +20,7 @@ ArmorProcessorNode::ArmorProcessorNode(const rclcpp::NodeOptions& options) : Nod
   // tracker_->tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
   // lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
 
-  std::string config_path = this->declare_parameter("tracker_config_path", "/home/dji/infantry/src/vision_bringup/config/standard3.yaml");
+  std::string config_path = this->declare_parameter("tracker_config_path", "/home/jlcv/infantry/src/vision_bringup/config/standard3.yaml");
   tracker_ = std::make_unique<auto_aim::Tracker>(config_path, tools::g_ros_clock.now());
   aimer_ = std::make_unique<auto_aim::Aimer> (config_path);
   shooter_ = std::make_unique<Shooter>(config_path);

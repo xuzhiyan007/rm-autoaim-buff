@@ -1,9 +1,7 @@
 # This is the interface file for the SetMode service.
-# 0=自瞄  1=无  2=小能量机关  3=大能量机关
-uint8 ARMOR = 0
-uint8 NONE = 1
-uint8 SMALL_ENERGY = 2
-uint8 BIG_ENERGY = 3
+uint8 SMALL_ENERGY = 0
+uint8 BIG_ENERGY = 1
+uint8 ARMOR = 2
 
 uint8 mode
 ---

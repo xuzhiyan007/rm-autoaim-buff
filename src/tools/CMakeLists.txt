@@ -34,7 +34,7 @@ target_link_libraries(tools PRIVATE fmt::fmt rclcpp::rclcpp Eigen3::Eigen)
 target_include_directories(tools
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:include/tools>
 )
 # 3. 安装库
 install(
@@ -49,11 +49,8 @@ install(
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(ament_cmake)
 
-install(
-  DIRECTORY include/
-  DESTINATION include
+ament_auto_package(
+  INSTALL_TO_SHARE
+  # USE_SCOPED_HEADER_INSTALL_DIR
 )
-
-ament_export_include_directories(include)
-ament_package()
 

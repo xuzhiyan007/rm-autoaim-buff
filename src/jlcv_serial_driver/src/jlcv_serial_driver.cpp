@@ -29,8 +29,8 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   : Node("jlcv_serial_driver", options)
   , owned_ctx_{ new IoContext(2) }
   , serial_driver_{ new drivers::serial_driver::SerialDriver(*owned_ctx_) }
-  , last_mode_(0)
-  , curr_mode_(0)
+  , last_mode_(2)
+  , curr_mode_(2)
 {
   RCLCPP_INFO(get_logger(), "Start SerialDriver!");
 
@@ -47,7 +47,6 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   game_status_pub_ =
       this->create_publisher<jlcv_interfaces::msg::GameStatus>("/game_status", rclcpp::QoS(rclcpp::KeepLast(1)));
   latency_pub_ = this->create_publisher<std_msgs::msg::Float64>("/latency", 10);
-  robot_mode_pub_ = this->create_publisher<std_msgs::msg::UInt8>("/robot_mode", rclcpp::QoS(rclcpp::KeepLast(1)));
 
   // Detect parameter client
   armor_detector_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(this, "armor_detector");
@@ -75,7 +74,7 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions& options)
   }
 
   energy_target_sub_ = this->create_subscription<geometry_msgs::msg::Vector3>(
-      "/ene_energy_processor/energy_target", rclcpp::SensorDataQoS(),
+      "/energy_processor/energy_target", rclcpp::SensorDataQoS(),
       std::bind(&SerialDriver::AngleSendData, this, std::placeholders::_1));
 
   target_angle_sub_ = this->create_subscription<geometry_msgs::msg::Vector3>(
@@ -136,8 +135,7 @@ void SerialDriver::receiveData()
           if (curr_mode_ != last_mode_)
           {
             ResetMode();
-            if (curr_mode_ == jlcv_interfaces::srv::SetMode::Request::SMALL_ENERGY ||
-                curr_mode_ == jlcv_interfaces::srv::SetMode::Request::BIG_ENERGY)
+            if (curr_mode_ != jlcv_interfaces::srv::SetMode::Request::ARMOR)
             {
               ResetEnergyMode(rclcpp::Parameter("energy_mode", curr_mode_));
             }
@@ -158,10 +156,6 @@ void SerialDriver::receiveData()
           gamestatus.game_status = packet.game_status;
           gamestatus.outpost_status = packet.outpost_status;
           game_status_pub_->publish(gamestatus);
-
-          std_msgs::msg::UInt8 mode_msg;
-          mode_msg.data = packet.mode;
-          robot_mode_pub_->publish(mode_msg);
         }
         else
         {
@@ -393,8 +387,7 @@ void SerialDriver::ResetEnergyMode(const rclcpp::Parameter& param)
   // Set energy mode
   if (!set_param_future_.valid() || set_param_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
   {
-    RCLCPP_INFO(get_logger(), "Setting energy_mode to %s...",
-                param.as_int() == 2 ? "SMALL_ENERGY" : "BIG_ENERGY");
+    RCLCPP_INFO(get_logger(), "Setting energy_mode to %s...", param.as_int() == 0 ? "SMALL_ENERGY" : "BIG_ENERGY");
     energy_processor_param_client_->set_parameters({ param });
   }
 }
