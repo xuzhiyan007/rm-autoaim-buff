@@ -5,7 +5,10 @@ log/
 *.bin
 *.xml
 *.onnx
-*.sh
+
+*.avi
+*.txt
+
 
 # CMake 编译产物
 CMakeCache.txt
