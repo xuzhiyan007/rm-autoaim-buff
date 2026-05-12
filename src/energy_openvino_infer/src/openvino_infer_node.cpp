@@ -132,6 +132,7 @@ private:
         this->declare_parameter("template_channel_mode", "red"); //gray, red,  blue
         this->declare_parameter("kp0_hold_max_pixel_dist", 30.0);  // kp[0]补帧阈値：圆形关键点平均偏移上限（像素）
         this->declare_parameter("enable_kp0_hold", true);            // 是否开启 kp[0] 补帧策略
+        this->declare_parameter("enable_mode_gate", true);           // 是否启用 /robot_mode 门控
 
         // 获取参数并展开路径
         model_path_ = expandPath(this->get_parameter("model_path").as_string());
@@ -158,6 +159,7 @@ private:
         template_channel_mode_ = this->get_parameter("template_channel_mode").as_string();
         kp0_hold_max_pixel_dist_ = static_cast<float>(this->get_parameter("kp0_hold_max_pixel_dist").as_double());
         enable_kp0_hold_ = this->get_parameter("enable_kp0_hold").as_bool();
+        enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
         this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
         std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
         load_sift_params(sift_params_path);
@@ -466,7 +468,7 @@ private:
     void image_callback(sensor_msgs::msg::Image::UniquePtr msg)
     {
         uint8_t mode = robot_mode_.load();
-        if (mode != 0 && mode != 1) {
+        if (enable_mode_gate_ && mode != 0 && mode != 1) {
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
                 "[openvino_infer] standby (mode=%d, waiting for SMALL_ENERGY=0 or BIG_ENERGY=1)",
                 static_cast<int>(mode));
@@ -1326,6 +1328,7 @@ private:
     bool has_last_circle_kp_ = false;
     float kp0_hold_max_pixel_dist_ = 30.0f;
     bool enable_kp0_hold_ = true;
+    bool enable_mode_gate_ = true;
 
     float template_r_scale_;
     float template_r_roi_scale_;

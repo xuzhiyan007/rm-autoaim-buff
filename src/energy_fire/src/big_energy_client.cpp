@@ -25,10 +25,12 @@ public:
     this->declare_parameter("call_rate", 20.0);      // Hz
     this->declare_parameter("dt", 1.0);              // 预测时间 (s)
     this->declare_parameter("bullet_speed", 26.0);  // 弹速 (m/s)
+    this->declare_parameter("enable_mode_gate", true);  // 是否启用 /robot_mode 门控
 
     dt_ = this->get_parameter("dt").as_double();
     call_rate_ = this->get_parameter("call_rate").as_double();
     bullet_speed_ = this->get_parameter("bullet_speed").as_double();
+    enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
 
     // 创建服务客户端
     predict_client_ = this->create_client<energy_fitting::srv::PredictEnergy>("/predict_energy_big");
@@ -120,7 +122,7 @@ private:
   // ========== Timer 回调：触发新一轮计算 ==========
   void onTimer()
   {
-    if (robot_mode_.load() != 1) {
+    if (enable_mode_gate_ && robot_mode_.load() != 1) {
       RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
         "[big_energy_client] waiting for BIG_ENERGY mode (current mode=%d)",
         static_cast<int>(robot_mode_.load()));
@@ -162,8 +164,8 @@ private:
                "/predict_energy_big success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    target_req->delta_mu = predict_resp->delta_mu;
-    // target_req->delta_mu = 0.717; //TODO
+    //target_req->delta_mu = predict_resp->delta_mu;
+    target_req->delta_mu = 0.0; //TODO
 
     RCLCPP_INFO(this->get_logger(),
                "Calling /compute_target_location (async) with delta_mu=%.6f",
@@ -312,6 +314,7 @@ private:
   double dt_;
   double call_rate_;
   double bullet_speed_;
+  bool enable_mode_gate_{true};
 
   // 外部状态（由订阅回调更新）
   std::atomic<uint8_t> robot_mode_{2};  // 默认 ARMOR，serial_driver 启动后快速修正

@@ -46,6 +46,12 @@ def generate_launch_description():
         description='子弹初速度 (m/s)'
     )
 
+    enable_mode_gate_arg = DeclareLaunchArgument(
+        'enable_mode_gate',
+        default_value='false',
+        description='是否启用 /robot_mode 门控（false=跳过模式检查，始终运行）'
+    )
+
     # ============================
     # 包含外部 Launch 文件
     # ============================
@@ -79,7 +85,10 @@ def generate_launch_description():
         executable='openvino_infer_node',
         name='openvino_infer_node',
         output='screen',
-        parameters=[{'enable_r_debug_mode': True}]
+        parameters=[{
+            'enable_r_debug_mode': True,
+            'enable_mode_gate': LaunchConfiguration('enable_mode_gate'),
+        }]
     )
 
     # 4. PnP 解算节点
@@ -144,9 +153,10 @@ def generate_launch_description():
         name='little_energy_client',
         output='screen',
         parameters=[{
-            'dt':           LaunchConfiguration('dt'),
-            'call_rate':    LaunchConfiguration('call_rate'),
-            'bullet_speed': LaunchConfiguration('bullet_speed'),
+            'dt':               LaunchConfiguration('dt'),
+            'call_rate':        LaunchConfiguration('call_rate'),
+            'bullet_speed':     LaunchConfiguration('bullet_speed'),
+            'enable_mode_gate': LaunchConfiguration('enable_mode_gate'),
         }]
     )
 
@@ -158,6 +168,7 @@ def generate_launch_description():
         dt_arg,
         call_rate_arg,
         bullet_speed_arg,
+        enable_mode_gate_arg,
 
         # 0. 串口驱动（立即启动）big_energy_predict
         serial_driver_launch,

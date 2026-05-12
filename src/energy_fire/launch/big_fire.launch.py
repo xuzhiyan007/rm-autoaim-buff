@@ -46,6 +46,12 @@ def generate_launch_description():
         description='子弹初速度 (m/s)'
     )
 
+    enable_mode_gate_arg = DeclareLaunchArgument(
+        'enable_mode_gate',
+        default_value='false',
+        description='是否启用 /robot_mode 门控（false=跳过模式检查，始终运行）'
+    )
+
     # ============================
     # 包含外部 Launch 文件
     # ============================
@@ -79,7 +85,10 @@ def generate_launch_description():
         executable='openvino_infer_node',
         name='openvino_infer_node',
         output='screen',
-        parameters=[{'enable_r_debug_mode': True}]
+        parameters=[{
+            'enable_r_debug_mode': True,
+            'enable_mode_gate': LaunchConfiguration('enable_mode_gate'),
+        }]
     )
 
 
@@ -123,7 +132,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    # 10. 大能量机关拟合节点 —— 提供 /predict_energy 服务
+    # 10. 大能量机关拟合节点 —— 提供 /predict_energy_big 服务
     big_energy_fitting_node = Node(
         package='energy_fitting',
         executable='big_energy',
@@ -131,6 +140,9 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'prediction_dt': LaunchConfiguration('dt'),
+            'direction':     -1,      # +1=逆时针(CCW), -1=顺时针(CW)，必须与实际大能量轮旋转方向一致
+            'window_size':   50,      # Ceres 滑动窗口大小，增大可提高收敛稳定性
+            'update_rate':   10.0,    # Ceres 优化触发频率 (Hz)
         }]
     )
 
@@ -154,9 +166,10 @@ def generate_launch_description():
         name='big_energy_client',
         output='screen',
         parameters=[{
-            'dt':           LaunchConfiguration('dt'),
-            'call_rate':    LaunchConfiguration('call_rate'),
-            'bullet_speed': LaunchConfiguration('bullet_speed'),
+            'dt':               LaunchConfiguration('dt'),
+            'call_rate':        LaunchConfiguration('call_rate'),
+            'bullet_speed':     LaunchConfiguration('bullet_speed'),
+            'enable_mode_gate': LaunchConfiguration('enable_mode_gate'),
         }]
     )
 
@@ -168,6 +181,7 @@ def generate_launch_description():
         dt_arg,
         call_rate_arg,
         bullet_speed_arg,
+        enable_mode_gate_arg,
 
         # 0. 串口驱动（立即启动）big_energy_predict
         serial_driver_launch,

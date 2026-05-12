@@ -78,6 +78,7 @@ private:
   // /robot_mode 门控（0=SMALL_ENERGY, 1=BIG_ENERGY, 2=ARMOR）
   std::atomic<uint8_t> robot_mode_{2};  // 默认 ARMOR，serial_driver 启动后快速修正
   rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_sub_;
+  bool enable_mode_gate_{true};  // 是否启用 /robot_mode 门控
 
   // Camera center
   cv::Point2f cam_center_;

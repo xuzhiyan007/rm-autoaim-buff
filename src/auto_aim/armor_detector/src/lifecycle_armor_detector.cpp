@@ -101,6 +101,7 @@ LifecycleArmorDetector::LifecycleArmorDetector(const rclcpp::NodeOptions& option
   flip_ = this->declare_parameter("flip", false);
   plus_pnp_ = this->declare_parameter("plus_pnp", false);
   use_record_ = this->declare_parameter("use_record", false);
+  enable_mode_gate_ = this->declare_parameter("enable_mode_gate", true);  // 是否启用 /robot_mode 门控
 
   if(debug_)
   {
@@ -136,7 +137,7 @@ void LifecycleArmorDetector::set_mode_callback(const jlcv_interfaces::srv::SetMo
 
 void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr img_msg)
 {
-  if (robot_mode_.load() != 2) {
+  if (enable_mode_gate_ && robot_mode_.load() != 2) {
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
         "[armor_detector] standby (mode=%d, waiting for ARMOR=2)",
         static_cast<int>(robot_mode_.load()));
@@ -291,6 +292,7 @@ std::vector<Armor> LifecycleArmorDetector::detectArmors(sensor_msgs::msg::Image:
 
   if (debug_)
   {
+    RCLCPP_INFO(this->get_logger(), "DEBUGING!");
     // record.write(img);
     binary_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
 
