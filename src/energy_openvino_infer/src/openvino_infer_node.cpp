@@ -132,7 +132,7 @@ private:
         this->declare_parameter("template_channel_mode", "red"); //gray, red,  blue
         this->declare_parameter("kp0_hold_max_pixel_dist", 30.0);  // kp[0]补帧阈値：圆形关键点平均偏移上限（像素）
         this->declare_parameter("enable_kp0_hold", true);            // 是否开启 kp[0] 补帧策略
-        this->declare_parameter("enable_mode_gate", true);           // 是否启用 /robot_mode 门控
+        this->declare_parameter("enable_mode_gate", false);           // 是否启用 /robot_mode 门控
         this->declare_parameter("roi_expand_ratio", 8.0 / 3.0);     // R/Circle ROI 扩展倍数（base_box → expanded_roi）
         this->declare_parameter("r_roi_base_ratio", 3.0 / 5.0);     // R base box 相对圆形包围盒（c_base_box）的宽高比例
 

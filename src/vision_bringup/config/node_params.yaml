@@ -25,7 +25,7 @@
 /armor_detector:
   ros__parameters:
     debug: true
-    use_record: false
+    use_record: true
     flip: false
     enemy_color: 1
     binary_thres: 50

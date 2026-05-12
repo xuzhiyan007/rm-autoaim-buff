@@ -164,8 +164,8 @@ private:
                "/predict_energy success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    target_req->delta_mu = predict_resp->delta_mu;
-    //target_req->delta_mu = 0.0; //TODO
+    //target_req->delta_mu = predict_resp->delta_mu;
+    target_req->delta_mu = 0.517; //TODO
 
     RCLCPP_INFO(this->get_logger(),
                "Calling /compute_target_location (async) with delta_mu=%.6f",
