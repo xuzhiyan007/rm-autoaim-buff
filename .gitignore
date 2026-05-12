@@ -4,6 +4,8 @@ install/
 log/
 *.bin
 *.xml
+*.onnx
+*.sh
 
 # CMake 编译产物
 CMakeCache.txt
