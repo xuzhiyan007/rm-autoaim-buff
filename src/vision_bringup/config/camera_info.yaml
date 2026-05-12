@@ -1,18 +1,18 @@
-# 更新时间: 2026-05-10
+# 更新时间: 2026-05-12
 image_width: 1440
 image_height: 1080
 camera_name: narrow_stereo
 camera_matrix:
   rows: 3
   cols: 3
-  data: [2403.457732 ,    0.     ,  701.646527,
-            0.     , 2402.348408,  569.853634,
+  data: [2401.86612,    0.     ,  747.60894,
+            0.     , 2400.28502,  629.53193,
             0.     ,    0.     ,    1.     ]
 distortion_model: plumb_bob
 distortion_coefficients:
   rows: 1
   cols: 5
-  data: [-0.032704, 0.183668, 0.000785, -0.001451, 0.000000]
+  data: [0.129776, -1.791858, 0.005609, 0.004330, 0.000000]
 rectification_matrix:
   rows: 3
   cols: 3
@@ -22,6 +22,6 @@ rectification_matrix:
 projection_matrix:
   rows: 3
   cols: 4
-  data: [2399.873779,    0.     ,  700.122798,    0.     ,
-            0.     , 2399.513916,  569.718213,    0.     ,
+  data: [2392.18018,    0.     ,  751.02918,    0.     ,
+            0.     , 2398.97803,  631.77389,    0.     ,
             0.     ,    0.     ,    1.     ,    0.     ]

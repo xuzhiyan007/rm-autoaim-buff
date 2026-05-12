@@ -23,7 +23,7 @@ struct ReceivePacket
   uint8_t enemy_color : 1;  // 敌方颜色  0-red 1-blue
   uint8_t game_status : 3;  // 比赛状态
   uint8_t outpost_status : 1;  // 前哨站状态
-  uint8_t mode;  // ARMOR:0  NONE:1  SMALL_ENERGY:2  BIG_ENERGY:3
+  uint8_t mode;  //SMALL_ENERGY:0  BIG_ENERGY:1  ARMOR:2
   float curr_pitch;
   float curr_yaw;
   uint16_t checksum = 0;

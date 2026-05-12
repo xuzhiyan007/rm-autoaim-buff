@@ -68,11 +68,11 @@ target_link_libraries(big_energy "${cpp_typesupport_target}" Ceres::ceres)
 # )
 # target_link_libraries(big_energy_client "${cpp_typesupport_target}")
 
-# add_executable(big_energy_predict src/big_energy_predict.cpp)
-# ament_target_dependencies(big_energy_predict
-#   rclcpp
-# )
-# target_link_libraries(big_energy_predict "${cpp_typesupport_target}")
+add_executable(big_energy_predict src/big_energy_predict.cpp)
+ament_target_dependencies(big_energy_predict
+  rclcpp
+)
+target_link_libraries(big_energy_predict "${cpp_typesupport_target}")
 
 # Install launch files
 install(DIRECTORY launch
@@ -84,6 +84,7 @@ install(TARGETS
   fitting_node
   little_energy
   big_energy
+  big_energy_predict
   DESTINATION lib/${PROJECT_NAME}
 )
 

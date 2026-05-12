@@ -5,15 +5,16 @@ outpost_max_temp_lost_count: 75
 
 #####-----aimer参数-----#####
 yaw_offset: -0.8 # degree -2.5
-pitch_offset: -3.0 # degree 2
-comming_angle: 35 # degree
-leaving_angle: 18 # degree
+pitch_offset: 2.0 # degree 2
+comming_angle: 60 # degree
+leaving_angle: 15 # degree
 decision_speed: 7 # rad/s
 high_speed_delay_time: 0.075 # s
 low_speed_delay_time: 0.075  # s planner use this value
 #####-----shooter参数-----#####
 first_tolerance: 1.35 #1.5 # 近距离射击容差，degree
 second_tolerance: 1.35 #1.2 # 远距离射击容差，degree
+max_distance_tolerance: 6.0 # 最远射击距离，m
 judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击
 #####-----processor_node参数-----#####
@@ -50,10 +51,21 @@ R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
 # 标定板同竖直摆放时的偏角: yaw-16.41 pitch89.30 roll171.41 degree
 # R_camera2gimbal: [0.028398603509588696, -0.020614112910371359, 0.99938409916689352, -0.99952211881697106, 0.011625463337862225, 0.028642321795084937, -0.012208739260806227, -0.99971991425153606, -0.020274114889759488]
 # t_camera2gimbal: [0.092172178511127023, -0.048734129358574865, 0.052250854763451711]
+# R_camera2gimbal: [0.0, 0.0, 1.0, 
+#                 -1.0, 0.0, 0.0, 
+#                 0.0, -1.0, 0.0]
+# t_camera2gimbal: [0.00352, 0.0, 0.0975]
+
+
+# R_camera2gimbal:  [0.0050236099560105971, -0.1530102705686345, 0.98821182974275446,
+#                   -0.99997834618328874, 0.0034322704770524681, 0.0056148627683239895,
+#                   -0.0042509419596870462, -0.98821863806542587, -0.15298971492414046]
+# t_camera2gimbal: [0.05169751162481958, 0.0023840063714545569, 0.089922746726116373]
 R_camera2gimbal: [0.0, 0.0, 1.0, 
                 -1.0, 0.0, 0.0, 
                 0.0, -1.0, 0.0]
 t_camera2gimbal: [0.00352, 0.0, 0.0975]
+
 #####-----planner-----#####
 fire_thresh: 0.0035
 

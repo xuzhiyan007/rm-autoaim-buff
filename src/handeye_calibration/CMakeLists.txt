@@ -13,7 +13,9 @@ find_package(sensor_msgs REQUIRED)
 #find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(fmt REQUIRED)
-find_package(yaml-cpp REQUIRED)
+# 强制使用系统共享版本的 yaml-cpp（/usr/local 的是 non-PIC 静态库，无法链进 .so）
+set(yaml-cpp_DIR "/usr/lib/x86_64-linux-gnu/cmake/yaml-cpp" CACHE PATH "" FORCE)
+find_package(yaml-cpp REQUIRED NO_DEFAULT_PATH PATHS "/usr/lib/x86_64-linux-gnu/cmake/yaml-cpp")
 find_package(tools REQUIRED)
 find_package(OpenCV 4.5 REQUIRED COMPONENTS core imgproc imgcodecs)
 # 包含目录
