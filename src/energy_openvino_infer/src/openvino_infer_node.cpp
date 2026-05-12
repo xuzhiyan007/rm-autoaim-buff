@@ -27,16 +27,16 @@
 
 
 // Default — template matching ON, visualization OFF
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
+//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
 
 //Disable template matching
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
+//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
 
 //Combine with visualization
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_visualization:=true
+//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_visualization:=true
 
 //R debug mode — R-only template matching, forced visualization
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_r_debug_mode:=true
+//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_r_debug_mode:=true
 struct Keypoint {
     float x;
     float y;
@@ -122,7 +122,7 @@ private:
         this->declare_parameter("num_threads", 4);
         this->declare_parameter("class_names", std::vector<std::string>{});
         this->declare_parameter("enable_visualization", true);
-        this->declare_parameter("enable_template_matching", true);
+        this->declare_parameter("enable_template_matching", false);
         this->declare_parameter("enable_r_debug_mode", false);
         this->declare_parameter("performance_mode", std::string("latency"));  // latency / throughput / cumulative_throughput  低延时/高吞吐/积累吞吐
         this->declare_parameter("template_r_scale", 2.0);
