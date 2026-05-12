@@ -16,11 +16,10 @@ class BigEnergyPredictClient : public rclcpp::Node
 public:
     BigEnergyPredictClient() : Node("big_energy_predict_client")
     {
-        // Hardcoded prediction time horizon: 1 second
-        dt_ = 0.2;
-
-        // Declare parameter for call rate (Hz)
+        // Declare parameters (dt and call_rate from launch)
+        this->declare_parameter("dt", 1.0);
         this->declare_parameter("call_rate", 10.0);
+        dt_ = this->get_parameter("dt").as_double();
         double call_rate = this->get_parameter("call_rate").as_double();
 
         // Create service client
@@ -88,7 +87,7 @@ private:
 
     rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedPtr predict_client_;
     rclcpp::TimerBase::SharedPtr timer_;
-    double dt_;  // Hardcoded to 1.0 s
+    double dt_;  // Read from "dt" parameter (default 1.0 s)
 };
 
 int main(int argc, char ** argv)
