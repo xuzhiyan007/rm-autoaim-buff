@@ -356,41 +356,11 @@ private:
             std::shared_ptr<ov::Model> model = core.read_model(model_path);
             
             std::vector<std::string> available_devices = core.get_available_devices();
-            std::string target_device = device_;
-            
-            // 强制使用 GPU，如果 GPU 不可用则报错
-            if (target_device.empty()) {
-                target_device = "GPU";
+            std::string requested_device = device_;
+            if (requested_device.empty()) {
+                requested_device = "GPU";
             }
             
-            // 检查 GPU 是否可用
-            bool gpu_available = std::find(available_devices.begin(), available_devices.end(), "GPU") != available_devices.end();
-            if (!gpu_available) {
-                RCLCPP_ERROR(this->get_logger(), "GPU device not found! Available devices:");
-                for (const auto& d : available_devices) {
-                    RCLCPP_ERROR(this->get_logger(), "  - %s", d.c_str());
-                }
-                throw std::runtime_error("GPU device not available");
-            }
-            
-            // 设置 GPU 推理配置（可选优化）
-            //core.set_property("GPU", ov::hint::inference_precision(ov::element::f16));
-
-            ov::hint::PerformanceMode perf_mode = ov::hint::PerformanceMode::LATENCY;
-            if (performance_mode_ == "throughput") {
-                perf_mode = ov::hint::PerformanceMode::THROUGHPUT;
-            } else if (performance_mode_ == "cumulative_throughput") {
-                perf_mode = ov::hint::PerformanceMode::CUMULATIVE_THROUGHPUT;
-            }
-            core.set_property("GPU", ov::hint::performance_mode(perf_mode));
-            RCLCPP_INFO(this->get_logger(), "GPU performance mode: %s", performance_mode_.c_str());
-            
-            RCLCPP_INFO(this->get_logger(), "===============================================");
-            RCLCPP_INFO(this->get_logger(), " Using GPU for inference");
-            RCLCPP_INFO(this->get_logger(), "===============================================");
-            
-            RCLCPP_INFO(this->get_logger(), "Using device: %s", target_device.c_str());
-
             // ===== OpenVINO 预处理优化：将颜色转换、归一化、NCHW 转置嵌入模型图 =====
             {
                 ov::preprocess::PrePostProcessor ppp(model);
@@ -409,7 +379,71 @@ private:
             }
             // ===================================================================
             
-            compiled_model = core.compile_model(model, target_device);
+            bool gpu_attempted = false;
+            bool gpu_succeeded = false;
+            std::string fallback_reason;
+            std::string target_device = requested_device;
+            
+            if (requested_device == "GPU") {
+                gpu_attempted = true;
+                bool gpu_available = std::find(available_devices.begin(), available_devices.end(), "GPU") != available_devices.end();
+                if (!gpu_available) {
+                    fallback_reason = "GPU device not available";
+                    RCLCPP_WARN(this->get_logger(), "GPU device not found! Available devices:");
+                    for (const auto& d : available_devices) {
+                        RCLCPP_WARN(this->get_logger(), "  - %s", d.c_str());
+                    }
+                } else {
+                    // 设置 GPU 推理配置（可选优化）
+                    //core.set_property("GPU", ov::hint::inference_precision(ov::element::f16));
+
+                    ov::hint::PerformanceMode perf_mode = ov::hint::PerformanceMode::LATENCY;
+                    if (performance_mode_ == "throughput") {
+                        perf_mode = ov::hint::PerformanceMode::THROUGHPUT;
+                    } else if (performance_mode_ == "cumulative_throughput") {
+                        perf_mode = ov::hint::PerformanceMode::CUMULATIVE_THROUGHPUT;
+                    }
+                    core.set_property("GPU", ov::hint::performance_mode(perf_mode));
+                    RCLCPP_INFO(this->get_logger(), "GPU performance mode: %s", performance_mode_.c_str());
+                    
+                    try {
+                        RCLCPP_INFO(this->get_logger(), "Attempting to compile model on GPU...");
+                        compiled_model = core.compile_model(model, "GPU");
+                        gpu_succeeded = true;
+                    } catch (const std::exception& e) {
+                        fallback_reason = std::string("GPU compile failed: ") + e.what();
+                        RCLCPP_WARN(this->get_logger(), "GPU compile failed: %s", e.what());
+                    }
+                }
+            } else if (requested_device == "CPU") {
+                core.set_property("CPU", ov::inference_num_threads(num_threads_));
+                RCLCPP_INFO(this->get_logger(), "CPU inference threads: %d", num_threads_);
+                compiled_model = core.compile_model(model, "CPU");
+            } else {
+                // 其他设备（如 AUTO, MULTI 等），直接尝试
+                compiled_model = core.compile_model(model, requested_device);
+            }
+            
+            // GPU 尝试失败，回退到 CPU
+            if (gpu_attempted && !gpu_succeeded) {
+                target_device = "CPU";
+                RCLCPP_WARN(this->get_logger(), "===============================================");
+                RCLCPP_WARN(this->get_logger(), " Falling back to CPU: %s", fallback_reason.c_str());
+                RCLCPP_WARN(this->get_logger(), "===============================================");
+                
+                core.set_property("CPU", ov::inference_num_threads(num_threads_));
+                RCLCPP_INFO(this->get_logger(), "CPU inference threads: %d", num_threads_);
+                compiled_model = core.compile_model(model, "CPU");
+            }
+            
+            if (gpu_succeeded || (!gpu_attempted && target_device != "CPU")) {
+                RCLCPP_INFO(this->get_logger(), "===============================================");
+                RCLCPP_INFO(this->get_logger(), " Using %s for inference", target_device.c_str());
+                RCLCPP_INFO(this->get_logger(), "===============================================");
+            }
+            
+            RCLCPP_INFO(this->get_logger(), "Using device: %s", target_device.c_str());
+            
             infer_request = compiled_model.create_infer_request();
             
             input_name = compiled_model.input().get_any_name();
@@ -419,7 +453,7 @@ private:
             letterboxed_image_.create(input_height_, input_width_, CV_8UC3);
             resized_image_.create(input_height_, input_width_, CV_8UC3);
             
-            RCLCPP_INFO(this->get_logger(), "Model loaded and compiled successfully");
+            RCLCPP_INFO(this->get_logger(), "Model loaded and compiled successfully on %s", target_device.c_str());
             RCLCPP_INFO(this->get_logger(), "Input name: %s", input_name.c_str());
             RCLCPP_INFO(this->get_logger(), "Output name: %s", output_name.c_str());
             RCLCPP_INFO(this->get_logger(), "Pre-allocated buffers: %dx%d", input_width_, input_height_);
