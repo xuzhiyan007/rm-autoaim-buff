@@ -92,6 +92,12 @@ def generate_launch_description():
         description='子弹初速度 (m/s)'
     )
 
+    clockwise_arg = DeclareLaunchArgument(
+        'clockwise',
+        default_value='true',
+        description='能量机关旋转方向: true=顺时针, false=逆时针'
+    )
+
     # ============================
     # 三合一相机容器(方案 A 核心)
     # hik_camera + armor_detector + openvino_infer 共享进程,全部零拷贝
@@ -123,7 +129,7 @@ def generate_launch_description():
                 package='energy_openvino_infer',
                 plugin='OpenVINOInferenceNode',
                 name='openvino_infer_node',
-                parameters=[{'enable_r_debug_mode': True}],
+                parameters=[{'enable_r_debug_mode': False}],
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),
         ],
@@ -231,6 +237,7 @@ def generate_launch_description():
             'dt':           LaunchConfiguration('dt'),
             'call_rate':    LaunchConfiguration('call_rate'),
             'bullet_speed': LaunchConfiguration('bullet_speed'),
+            'clockwise':    LaunchConfiguration('clockwise'),
         }]
     )
 
@@ -243,6 +250,7 @@ def generate_launch_description():
         dt_arg,
         call_rate_arg,
         bullet_speed_arg,
+        clockwise_arg,
 
         # ---- 立即启动:TF 骨架(来自 vision_bringup) ----
         robot_state_publisher,

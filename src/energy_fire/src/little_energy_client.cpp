@@ -26,11 +26,13 @@ public:
     this->declare_parameter("dt", 1.0);              // 预测时间 (s)
     this->declare_parameter("bullet_speed", 22.0);  // 弹速 (m/s)
     this->declare_parameter("enable_mode_gate", true);  // 是否启用 /robot_mode 门控
+    this->declare_parameter("clockwise", true);          // true=顺时针, false=逆时针
 
     dt_ = this->get_parameter("dt").as_double();
     call_rate_ = this->get_parameter("call_rate").as_double();
     bullet_speed_ = this->get_parameter("bullet_speed").as_double();
     enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
+    clockwise_ = this->get_parameter("clockwise").as_bool();
 
     // 创建服务客户端
     predict_client_ = this->create_client<energy_fitting::srv::PredictEnergy>("/predict_energy");
@@ -126,11 +128,13 @@ private:
       return;
     }
 
-    // delta_mu 写死：预测角 = dt * (π/3 rad/s)
+    // delta_mu 写死：预测角 = dt * (±π/3 rad/s)，方向由 clockwise 参数决定
     dt_ = dt_ + FIRE_LATENCY + OFFSET;
-    double delta_mu = dt_ * (M_PI / 3.0);
+
+    double delta_mu = clockwise_ ? dt_ * (M_PI / 3.0) : dt_ * (-M_PI / 3.0);
     RCLCPP_INFO(this->get_logger(),
-      "[hardcoded] delta_mu = dt(%.4f) * (pi/3) = %.6f rad", dt_, delta_mu);
+      "[hardcoded] delta_mu = dt(%.4f) * %s(pi/3) = %.6f rad",
+      dt_, clockwise_ ? "+" : "-", delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
     target_req->delta_mu = delta_mu;
@@ -308,6 +312,7 @@ private:
   double call_rate_;
   double bullet_speed_;
   bool enable_mode_gate_{true};
+  bool clockwise_{true};  // true=顺时针, false=逆时针
 
   // 外部状态（由订阅回调更新）
   std::atomic<uint8_t> robot_mode_{2};  // 默认 ARMOR，serial_driver 启动后快速修正

@@ -7,9 +7,9 @@
 #include <string>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <message_filters/subscriber.h>
-#include <message_filters/sync_policies/approximate_time.h>
-#include <message_filters/synchronizer.h>
+#include <message_filters/subscriber.hpp>
+#include <message_filters/sync_policies/approximate_time.hpp>
+#include <message_filters/synchronizer.hpp>
 
 // 全局变量（按照现有代码风格）
 rclcpp::Node::SharedPtr g_node = nullptr;

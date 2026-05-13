@@ -23,7 +23,7 @@ export LD_LIBRARY_PATH=/opt/MVS/lib/64:/opt/MVS/lib/32:$LD_LIBRARY_PATH
 export ROS_HOME="/home/jlcv/infantry"
 export ROS_DOMAIN_ID=21
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export ROS_LOCALHOST_ONLY=0
+export ROS_LOCALHOST_ONLY=0 
 
 source /opt/ros/kilted/setup.bash
 
@@ -34,7 +34,7 @@ source ./install/setup.bash
 
 # 设置需要启动和监视的ros命令
 #declare -a commands=("echo 'jlcv' | sudo -S chmod 777 /dev/ttyUSB0;source /home/jlcv/.bashrc ;ros2 launch vision_bringup vision_bringup.launch.py" "ros2 run armor_processor armor_processor_node")
-declare -a commands=("echo 'jlcv' | sudo -S chmod 777 /dev/ttyUSB0;source /home/jlcv/.bashrc ;ros2 launch energy_fire full_system.launch.py" )
+declare -a commands=("echo 'jlcv' | sudo -S chmod 777 /dev/ttyUSB0;source /home/jlcv/.bashrc ;ros2 launch vision_bringup vision_bringup.launch.py" )
 # 定义函数来启动ros命令
 start_commands() {
   for cmd in "${commands[@]}"
