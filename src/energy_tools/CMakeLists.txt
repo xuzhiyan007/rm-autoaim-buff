@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -49,7 +50,30 @@ target_include_directories(image_viewer_node PUBLIC
 ament_target_dependencies(image_viewer_node rclcpp sensor_msgs OpenCV)
 target_link_libraries(image_viewer_node ${OpenCV_LIBS})
 
+# ── frame_timestamp_checker: 可组合节点（支持容器内零拷贝通信） ──
+add_library(frame_timestamp_checker_component SHARED src/frame_timestamp_checker.cpp)
+target_include_directories(frame_timestamp_checker_component PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(frame_timestamp_checker_component
+  rclcpp::rclcpp
+  rclcpp_components::component
+  ${sensor_msgs_TARGETS}
+)
+ament_target_dependencies(frame_timestamp_checker_component rclcpp sensor_msgs)
+
+rclcpp_components_register_node(frame_timestamp_checker_component
+  PLUGIN "energy_tools::FrameTimestampChecker"
+  EXECUTABLE frame_timestamp_checker_node
+)
+
 install(TARGETS visualizer_node roi_visualizer_node grab_image_node image_viewer_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS frame_timestamp_checker_component
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 ament_package()
