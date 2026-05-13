@@ -80,17 +80,7 @@ public:
         robot_mode_.store(msg->data);
       });
 
-    // 等待服务就绪
-    RCLCPP_INFO(this->get_logger(), "Waiting for /predict_energy service...");
-    while (!predict_client_->wait_for_service(1s)) {
-      if (!rclcpp::ok()) {
-        RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for service.");
-        rclcpp::shutdown();
-        throw std::runtime_error("Interrupted");
-      }
-      RCLCPP_INFO(this->get_logger(), "Service not available, waiting...");
-    }
-
+    // 等待服务就绪（/predict_energy 已写死，无需等待）
     RCLCPP_INFO(this->get_logger(), "Waiting for /compute_target_location service...");
     while (!target_client_->wait_for_service(1s)) {
       if (!rclcpp::ok()) {
@@ -113,6 +103,7 @@ public:
 private:
   static constexpr double GRAVITY_LITTLE = 9.7915;
   static constexpr double FIRE_LATENCY = 0.075;
+  static constexpr double OFFSET = 0.0;
   static constexpr int64_t DETECTION_TIMEOUT_NS = 500'000'000LL;  // 500ms
 
   static constexpr int STATE_IDLE = 0;
@@ -135,18 +126,19 @@ private:
       return;
     }
 
-    auto predict_req = std::make_shared<energy_fitting::srv::PredictEnergy::Request>();
-    // 传入打中时刻的绝对时间戳（当前时刻 + 飞行时间 + 发射延迟）
-    // little_energy 节点将以最后一帧图像采集时刻为起点，此时刻为终点，计算 delta_mu
-    rclcpp::Time hit_time = this->now() + rclcpp::Duration::from_seconds(dt_ + FIRE_LATENCY);
-    predict_req->hit_time = hit_time;
+    // delta_mu 写死：预测角 = dt * (π/3 rad/s)
+    dt_ = dt_ + FIRE_LATENCY + OFFSET;
+    double delta_mu = dt_ * (M_PI / 3.0);
+    RCLCPP_INFO(this->get_logger(),
+      "[hardcoded] delta_mu = dt(%.4f) * (pi/3) = %.6f rad", dt_, delta_mu);
 
-    RCLCPP_INFO(this->get_logger(), "Calling /predict_energy (async) with hit_time=%.3f s (dt=%.3f + latency=%.3f)",
-                hit_time.seconds(), dt_, FIRE_LATENCY);
+    auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
+    target_req->delta_mu = delta_mu;
 
-    predict_client_->async_send_request(predict_req,
-      [this](rclcpp::Client<energy_fitting::srv::PredictEnergy>::SharedFuture future) {
-        onPredictResponse(future);
+    state_.store(STATE_WAITING_COMPUTE);
+    target_client_->async_send_request(target_req,
+      [this](rclcpp::Client<energy_pose_transform::srv::ComputeTargetLocation>::SharedFuture future) {
+        onComputeResponse(future);
       });
   }
 
@@ -164,8 +156,9 @@ private:
                "/predict_energy success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    //target_req->delta_mu = predict_resp->delta_mu;
-    target_req->delta_mu = 0.517; //TODO
+    target_req->delta_mu = predict_resp->delta_mu;
+
+    //target_req->delta_mu = 0.517; //TODO
 
     RCLCPP_INFO(this->get_logger(),
                "Calling /compute_target_location (async) with delta_mu=%.6f",
