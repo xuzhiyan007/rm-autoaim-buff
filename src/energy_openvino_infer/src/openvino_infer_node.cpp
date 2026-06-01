@@ -27,16 +27,14 @@
 
 
 // Default — template matching ON, visualization OFF
-//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
 
 //Disable template matching
-//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
 
 //Combine with visualization
-//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_visualization:=true
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_visualization:=true
 
-//R debug mode — R-only template matching, forced visualization
-//ros2 run energy_openvino_infer openvino_infer_node --ros-args -p enable_r_debug_mode:=true
 struct Keypoint {
     float x;
     float y;
@@ -109,7 +107,6 @@ private:
 #else
         this->declare_parameter("model_path", "~/infantry/src/energy_openvino_infer/models/best.xml");
 #endif
-        this->declare_parameter("template_r_path", "~/infantry/src/energy_openvino_infer/template/R.png");
         this->declare_parameter("template_circle_path", "~/infantry/src/energy_openvino_infer/template/template_circle.png");
         this->declare_parameter("input_topic", "/image_raw");
         this->declare_parameter("output_topic", "/detections");
@@ -122,11 +119,8 @@ private:
         this->declare_parameter("num_threads", 4);
         this->declare_parameter("class_names", std::vector<std::string>{});
         this->declare_parameter("enable_visualization", true);
-        this->declare_parameter("enable_template_matching", false);
-        this->declare_parameter("enable_r_debug_mode", false);
+        this->declare_parameter("enable_template_matching", true);
         this->declare_parameter("performance_mode", std::string("latency"));  // latency / throughput / cumulative_throughput  低延时/高吞吐/积累吞吐
-        this->declare_parameter("template_r_scale", 2.0);
-        this->declare_parameter("template_r_roi_scale", 1.0);
         this->declare_parameter("template_circle_scale", 0.5);
         this->declare_parameter("template_circle_roi_scale", 0.5);
         this->declare_parameter("template_channel_mode", "red"); //gray, red,  blue
@@ -138,7 +132,6 @@ private:
 
         // 获取参数并展开路径
         model_path_ = expandPath(this->get_parameter("model_path").as_string());
-        std::string template_r_path = expandPath(this->get_parameter("template_r_path").as_string());
         std::string template_circle_path = expandPath(this->get_parameter("template_circle_path").as_string());
         input_topic_ = this->get_parameter("input_topic").as_string();
         output_topic_ = this->get_parameter("output_topic").as_string();
@@ -152,10 +145,7 @@ private:
         class_names_ = this->get_parameter("class_names").as_string_array();
         enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
         enable_template_matching_ = this->get_parameter("enable_template_matching").as_bool();
-        enable_r_debug_mode_ = this->get_parameter("enable_r_debug_mode").as_bool();
         performance_mode_ = this->get_parameter("performance_mode").as_string();
-        template_r_scale_ = static_cast<float>(this->get_parameter("template_r_scale").as_double());
-        template_r_roi_scale_ = static_cast<float>(this->get_parameter("template_r_roi_scale").as_double());
         template_circle_scale_ = static_cast<float>(this->get_parameter("template_circle_scale").as_double());
         template_circle_roi_scale_ = static_cast<float>(this->get_parameter("template_circle_roi_scale").as_double());
         template_channel_mode_ = this->get_parameter("template_channel_mode").as_string();
@@ -167,22 +157,6 @@ private:
         this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
         std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
         load_sift_params(sift_params_path);
-        if (enable_r_debug_mode_) {
-            enable_visualization_ = true;
-            RCLCPP_INFO(this->get_logger(), "R debug mode enabled: R-only matching + forced visualization");
-        }
-
-
-
-
-        // R 模板初始化专用 SIFT
-        auto sift_r_tmpl = cv::SIFT::create(
-            r_cfg_.sift.nfeatures,
-            r_cfg_.sift.nOctaveLayers,
-            r_cfg_.sift.contrastThreshold,
-            r_cfg_.sift.edgeThreshold,
-            r_cfg_.sift.sigma
-        );
 
         // Circle 模板初始化专用 SIFT
         auto sift_c_tmpl = cv::SIFT::create(
@@ -193,32 +167,7 @@ private:
             circle_cfg_.sift.sigma
         );
 
-        RCLCPP_INFO(this->get_logger(), "R template path: %s", template_r_path.c_str());
         RCLCPP_INFO(this->get_logger(), "Circle template path: %s", template_circle_path.c_str());
-
-        cv::Mat img_r = cv::imread(template_r_path, cv::IMREAD_COLOR);
-        if (!img_r.empty()) {
-            cv::cvtColor(img_r, img_r, cv::COLOR_BGR2RGB);  // imread 返回 BGR，统一转为 RGB 与运行时一致
-            cv::Mat img_r_channel;
-            extract_channel(img_r, img_r_channel);
-            cv::Mat img_r_small;
-            cv::resize(img_r_channel, img_r_small, cv::Size(), template_r_scale_, template_r_scale_, cv::INTER_LINEAR);
-            sift_r_tmpl->detectAndCompute(img_r_small, cv::noArray(), r_td_.keypoints, r_td_.descriptors);
-            std::vector<cv::Point2f> r_pts_scaled;
-            for (const auto& pt : r_cfg_.specific_pts) {
-                r_pts_scaled.emplace_back(pt.x * template_r_scale_, pt.y * template_r_scale_);
-            }
-            r_td_.specific_pts = std::move(r_pts_scaled);
-            r_td_.min_matches = r_cfg_.min_matches;
-            r_td_.ratio_test = r_cfg_.ratio_test;
-            // 优化：使用 BFMatcher 替代 FLANN（ROI特征点少时更快）
-            r_td_.matcher = cv::makePtr<cv::BFMatcher>(cv::NORM_L2, false);
-            r_td_.matcher->add({r_td_.descriptors});
-            // BFMatcher 无需 train()，直接使用
-            RCLCPP_INFO(this->get_logger(), "R template loaded and BFMatcher initialized successfully");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to read R.png template from: %s", template_r_path.c_str());
-        }
 
         cv::Mat img_c = cv::imread(template_circle_path, cv::IMREAD_COLOR);
         if (!img_c.empty()) {
@@ -520,15 +469,11 @@ private:
                 keypoints_msg.header.stamp = msg->header.stamp;  //直接复用相机的时间戳
                 keypoints_msg.header.frame_id = "camera_frame";
 
-                if (enable_r_debug_mode_) {
-                    last_r_match_success_ = false;
-                }
                 for (int idx : indices) {
                     if (idx >= all_keypoints.size()) continue;
 
                     cv::Rect box = boxes[idx] & cv::Rect(0, 0, image.cols, image.rows);
 
-                    cv::Rect r_expanded_roi; bool has_r_roi = false;
                     cv::Rect c_expanded_roi; bool has_c_roi = false;
 
                     // 辅助 lambda：将 base_box 扩大后提取灰度并按指定 scale 缩放
@@ -552,7 +497,7 @@ private:
                         return true;
                     };
 
-                    // 先计算关键点 2-5 的包围盒（供 R ROI 和 Circle ROI 共用）
+                    // 先计算关键点 2-5 的包围盒（供 Circle ROI 共用）
                     cv::Rect c_base_box;
                     bool has_c_base = false;
                     if (all_keypoints[idx].size() >= 6) {
@@ -575,6 +520,32 @@ private:
                         }
                     }
 
+                    // ── R ROI 计算（基于 kp[0] 位置和 c_base_box 尺寸，无模板匹配）──
+                    cv::Rect r_expanded_roi; bool has_r_roi = false;
+                    if (all_keypoints[idx].size() > 0 && all_keypoints[idx][0].visibility > 0.5f) {
+                        const auto& kp0 = all_keypoints[idx][0];
+                        int r_roi_w = has_c_base ? (int)(c_base_box.width  * r_roi_base_ratio_) : box.width;
+                        int r_roi_h = has_c_base ? (int)(c_base_box.height * r_roi_base_ratio_) : box.height;
+                        cv::Rect r_base_box((int)(kp0.x - r_roi_w / 2.0f), (int)(kp0.y - r_roi_h / 2.0f), r_roi_w, r_roi_h);
+                        r_base_box &= cv::Rect(0, 0, image.cols, image.rows);
+                        if (r_base_box.width > 0 && r_base_box.height > 0) {
+                            // 直接计算扩展 ROI（复用 roi_expand_ratio_，不做模板匹配因此不需要缩放图片）
+                            int expand_w = (int)(r_base_box.width * roi_expand_ratio_);
+                            int expand_h = (int)(r_base_box.height * roi_expand_ratio_);
+                            int expand_x = r_base_box.x - (expand_w - r_base_box.width) / 2;
+                            int expand_y = r_base_box.y - (expand_h - r_base_box.height) / 2;
+                            expand_x = std::max(0, std::min(expand_x, image.cols - expand_w));
+                            expand_y = std::max(0, std::min(expand_y, image.rows - expand_h));
+                            expand_w = std::min(expand_w, image.cols - expand_x);
+                            expand_h = std::min(expand_h, image.rows - expand_y);
+                            if (expand_w > 0 && expand_h > 0) {
+                                r_expanded_roi = cv::Rect(expand_x, expand_y, expand_w, expand_h);
+                                has_r_roi = true;
+                            }
+                        }
+                    }
+                    // ────────────────────────────────────────────────────────────────
+
                     // 结构体：存储匹配结果
                     struct MatchResult {
                         bool success = false;
@@ -588,36 +559,8 @@ private:
                     const bool nn_kp0_detected = (all_keypoints[idx].size() > 0 &&
                                                   all_keypoints[idx][0].visibility > 0.5f);
                     if (enable_template_matching_) {
-                    auto r_future = std::async(std::launch::async, [&]() -> MatchResult {
-                        MatchResult res;
-                        if (all_keypoints[idx].size() > 0 && all_keypoints[idx][0].visibility > 0.5f) {
-                            const auto& kp0 = all_keypoints[idx][0];
-                            int r_roi_w = has_c_base ? (int)(c_base_box.width  * r_roi_base_ratio_) : box.width;
-                            int r_roi_h = has_c_base ? (int)(c_base_box.height * r_roi_base_ratio_) : box.height;
-                            cv::Rect r_base_box((int)(kp0.x - r_roi_w / 2.0f), (int)(kp0.y - r_roi_h / 2.0f), r_roi_w, r_roi_h);
-                            r_base_box &= cv::Rect(0, 0, image.cols, image.rows);
-
-                            cv::Mat r_roi_gray_small;
-                            if (r_base_box.width > 0 && r_base_box.height > 0 &&
-                                expand_and_extract(r_base_box, r_roi_gray_small, res.expanded_roi, template_r_roi_scale_)) {
-                                res.has_roi = true;
-                                thread_local cv::Ptr<cv::SIFT> tl_sift_r = cv::SIFT::create(
-                                    roi_sift_cfg_.nfeatures,
-                                    roi_sift_cfg_.nOctaveLayers,
-                                    roi_sift_cfg_.contrastThreshold,
-                                    roi_sift_cfg_.edgeThreshold,
-                                    roi_sift_cfg_.sigma);
-                                if (match_template_local(r_roi_gray_small, r_td_, res.points, tl_sift_r)) {
-                                    res.success = true;
-                                }
-                            }
-                        }
-                        return res;
-                    });
-
                     auto c_future = std::async(std::launch::async, [&]() -> MatchResult {
                         MatchResult res;
-                        if (enable_r_debug_mode_) return res; // R debug: skip circle matching
                         if (has_c_base && c_base_box.width > 0 && c_base_box.height > 0) {
                             cv::Mat c_roi_gray_small;
                             if (expand_and_extract(c_base_box, c_roi_gray_small, res.expanded_roi, template_circle_roi_scale_)) {
@@ -636,22 +579,8 @@ private:
                         return res;
                     });
 
-                    // 等待两个任务完成并应用结果
-                    MatchResult r_result = r_future.get();
+                    // 等待任务完成并应用结果
                     MatchResult c_result = c_future.get();
-
-                    // 应用 R 模板结果
-                    if (r_result.has_roi) {
-                        has_r_roi = true;
-                        r_expanded_roi = r_result.expanded_roi;
-                        if (r_result.success && !r_result.points.empty()) {
-                            if (enable_r_debug_mode_) last_r_match_success_ = true;
-                            float new_x = r_result.points[0].x / template_r_roi_scale_ + r_expanded_roi.x;
-                            float new_y = r_result.points[0].y / template_r_roi_scale_ + r_expanded_roi.y;
-                            all_keypoints[idx][0].x = new_x;
-                            all_keypoints[idx][0].y = new_y;
-                        }
-                    }
 
                     // 应用 Circle 模板结果
                     if (c_result.has_roi) {
@@ -897,12 +826,6 @@ private:
                     }
                 }
 
-                if (enable_r_debug_mode_) {
-                    std::string status_text = last_r_match_success_ ? "R Template Match: SUCCESS" : "R Template Match: FAILED";
-                    cv::Scalar status_color = last_r_match_success_ ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
-                    cv::putText(vis_image, status_text, cv::Point(10, 30),
-                                cv::FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2);
-                }
                 cv::imshow("Detection Visualization", vis_image);
                 cv::waitKey(1);
             }
@@ -1197,27 +1120,6 @@ private:
         try {
             YAML::Node config = YAML::LoadFile(path);
 
-            // R template
-            auto r_node = config["r_template"];
-            if (r_node["specific_pts"]) {
-                for (const auto& pt : r_node["specific_pts"]) {
-                    if (pt.IsSequence() && pt.size() >= 2) {
-                        r_cfg_.specific_pts.emplace_back(
-                            safe_float(pt[0], 0.0f), safe_float(pt[1], 0.0f));
-                    }
-                }
-            }
-            if (r_node["sift"]) {
-                auto s = r_node["sift"];
-                r_cfg_.sift.nfeatures = safe_int(s["nfeatures"], 0);
-                r_cfg_.sift.nOctaveLayers = safe_int(s["nOctaveLayers"], 3);
-                r_cfg_.sift.contrastThreshold = safe_double(s["contrastThreshold"], 0.01);
-                r_cfg_.sift.edgeThreshold = safe_double(s["edgeThreshold"], 10.0);
-                r_cfg_.sift.sigma = safe_double(s["sigma"], 1.6);
-            }
-            r_cfg_.min_matches = safe_int(r_node["min_matches"], 4);
-            r_cfg_.ratio_test = safe_float(r_node["ratio_test"], 0.7f);
-
             // Circle template
             auto c_node = config["circle_template"];
             if (c_node["specific_pts"]) {
@@ -1259,12 +1161,6 @@ private:
         } catch (const std::exception& e) {
             RCLCPP_WARN(this->get_logger(), "Failed to load SIFT params from %s: %s. Using hardcoded defaults.", path.c_str(), e.what());
             // Fallback defaults to match original behavior
-            r_cfg_.specific_pts = {cv::Point2f(14.0f, 12.0f)};
-            r_cfg_.min_matches = 4;
-            r_cfg_.ratio_test = 0.7f;
-            r_cfg_.sift.edgeThreshold = 10.0;
-            r_cfg_.sift.sigma = 1.6;
-
             circle_cfg_.specific_pts = {
                 cv::Point2f(40.0f, 103.0f), cv::Point2f(18.0f, 33.0f),
                 cv::Point2f(89.0f, 15.0f), cv::Point2f(110.0f, 85.0f)
@@ -1291,10 +1187,8 @@ private:
     std::string output_name;
 
 
-    TemplateData r_td_;
     TemplateData circle_td_;
 
-    TemplateConfig r_cfg_;
     TemplateConfig circle_cfg_;
     SiftParams roi_sift_cfg_;
     HomographyConfig homo_cfg_;
@@ -1319,8 +1213,6 @@ private:
     std::vector<std::string> class_names_;
     bool enable_visualization_;
     bool enable_template_matching_;
-    bool enable_r_debug_mode_;
-    bool last_r_match_success_ = false;
     std::string performance_mode_;
 
     // kp[0] 补帧状态
@@ -1336,8 +1228,6 @@ private:
     float roi_expand_ratio_ = 8.0f / 3.0f;  // R/Circle ROI 扩展倍数
     float r_roi_base_ratio_ = 3.0f / 5.0f;  // R base box 相对圆形包围盒的比例
 
-    float template_r_scale_;
-    float template_r_roi_scale_;
     float template_circle_scale_;
     float template_circle_roi_scale_;
     std::string template_channel_mode_;
