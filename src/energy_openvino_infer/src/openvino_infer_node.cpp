@@ -26,14 +26,17 @@
 #include "rclcpp_components/register_node_macro.hpp"
 
 
-// Default — template matching ON, visualization OFF
+// Default — template matching ON, R refine ON, visualization OFF
 //ros2 run openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
 
 //Disable template matching
 //ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
 
+//Disable R refine
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_r_refine:=false
+
 //Combine with visualization
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_visualization:=true
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_r_refine:=false -p enable_visualization:=true
 
 struct Keypoint {
     float x;
@@ -129,6 +132,12 @@ private:
         this->declare_parameter("enable_mode_gate", false);           // 是否启用 /robot_mode 门控
         this->declare_parameter("roi_expand_ratio", 8.0 / 3.0);     // R/Circle ROI 扩展倍数（base_box → expanded_roi）
         this->declare_parameter("r_roi_base_ratio", 3.0 / 5.0);     // R base box 相对圆形包围盒（c_base_box）的宽高比例
+        this->declare_parameter("r_detect_threshold", 17);            // R 红色通道二值化阈值
+        this->declare_parameter("r_detect_radius_ratio", 0.6);        // R Mask 半径比例（相对 kp4-kp2 距离）
+        this->declare_parameter("r_detect_extend_ratio", 3.1);        // R 圆心粗估计延伸倍数
+        this->declare_parameter("r_detect_dilate_kernel", 5);         // R 膨胀核大小
+        this->declare_parameter("enable_r_refine", true);              // 是否开启 kp[0] 红色通道精检测修正
+        this->declare_parameter("r_refine_max_dev_ratio", 0.5);        // kp[0] 精检测偏差保护比例（相对检测框对角线）
 
         // 获取参数并展开路径
         model_path_ = expandPath(this->get_parameter("model_path").as_string());
@@ -154,6 +163,12 @@ private:
         enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
         roi_expand_ratio_ = static_cast<float>(this->get_parameter("roi_expand_ratio").as_double());
         r_roi_base_ratio_ = static_cast<float>(this->get_parameter("r_roi_base_ratio").as_double());
+        r_detect_threshold_ = this->get_parameter("r_detect_threshold").as_int();
+        r_detect_radius_ratio_ = static_cast<float>(this->get_parameter("r_detect_radius_ratio").as_double());
+        r_detect_extend_ratio_ = static_cast<float>(this->get_parameter("r_detect_extend_ratio").as_double());
+        r_detect_dilate_kernel_ = this->get_parameter("r_detect_dilate_kernel").as_int();
+        enable_r_refine_ = this->get_parameter("enable_r_refine").as_bool();
+        r_refine_max_dev_ratio_ = static_cast<float>(this->get_parameter("r_refine_max_dev_ratio").as_double());
         this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
         std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
         load_sift_params(sift_params_path);
@@ -520,32 +535,6 @@ private:
                         }
                     }
 
-                    // ── R ROI 计算（基于 kp[0] 位置和 c_base_box 尺寸，无模板匹配）──
-                    cv::Rect r_expanded_roi; bool has_r_roi = false;
-                    if (all_keypoints[idx].size() > 0 && all_keypoints[idx][0].visibility > 0.5f) {
-                        const auto& kp0 = all_keypoints[idx][0];
-                        int r_roi_w = has_c_base ? (int)(c_base_box.width  * r_roi_base_ratio_) : box.width;
-                        int r_roi_h = has_c_base ? (int)(c_base_box.height * r_roi_base_ratio_) : box.height;
-                        cv::Rect r_base_box((int)(kp0.x - r_roi_w / 2.0f), (int)(kp0.y - r_roi_h / 2.0f), r_roi_w, r_roi_h);
-                        r_base_box &= cv::Rect(0, 0, image.cols, image.rows);
-                        if (r_base_box.width > 0 && r_base_box.height > 0) {
-                            // 直接计算扩展 ROI（复用 roi_expand_ratio_，不做模板匹配因此不需要缩放图片）
-                            int expand_w = (int)(r_base_box.width * roi_expand_ratio_);
-                            int expand_h = (int)(r_base_box.height * roi_expand_ratio_);
-                            int expand_x = r_base_box.x - (expand_w - r_base_box.width) / 2;
-                            int expand_y = r_base_box.y - (expand_h - r_base_box.height) / 2;
-                            expand_x = std::max(0, std::min(expand_x, image.cols - expand_w));
-                            expand_y = std::max(0, std::min(expand_y, image.rows - expand_h));
-                            expand_w = std::min(expand_w, image.cols - expand_x);
-                            expand_h = std::min(expand_h, image.rows - expand_y);
-                            if (expand_w > 0 && expand_h > 0) {
-                                r_expanded_roi = cv::Rect(expand_x, expand_y, expand_w, expand_h);
-                                has_r_roi = true;
-                            }
-                        }
-                    }
-                    // ────────────────────────────────────────────────────────────────
-
                     // 结构体：存储匹配结果
                     struct MatchResult {
                         bool success = false;
@@ -675,24 +664,37 @@ private:
                     }
                     // ─────────────────────────────────────────────────────────────
 
+                    // ── kp[0] 红色通道精检测修正 ─────────────────────────
+                    if (enable_r_refine_ && all_keypoints[idx].size() > 4 &&
+                        all_keypoints[idx][2].visibility > 0.5f &&
+                        all_keypoints[idx][4].visibility > 0.5f) {
+                        cv::Point2f kp2(all_keypoints[idx][2].x, all_keypoints[idx][2].y);
+                        cv::Point2f kp4(all_keypoints[idx][4].x, all_keypoints[idx][4].y);
+                        cv::Point2f refined = detect_r_center(image, kp4, kp2);
+
+                        // 偏差保护：若修正量超过检测框对角线的 r_refine_max_dev_ratio_ 则丢弃
+                        float max_dev = std::max(box.width, box.height) * r_refine_max_dev_ratio_;
+                        float orig_x = all_keypoints[idx][0].x;
+                        float orig_y = all_keypoints[idx][0].y;
+                        float dx = refined.x - orig_x;
+                        float dy = refined.y - orig_y;
+                        if (dx * dx + dy * dy < max_dev * max_dev) {
+                            all_keypoints[idx][0].x = refined.x;
+                            all_keypoints[idx][0].y = refined.y;
+                            all_keypoints[idx][0].visibility = 1.0f;
+                            RCLCPP_DEBUG(this->get_logger(),
+                                "kp[0] refined: NN=(%.1f,%.1f) -> red_ch=(%.1f,%.1f) offset=%.1fpx",
+                                orig_x, orig_y, refined.x, refined.y, std::sqrt(dx * dx + dy * dy));
+                        }
+                    }
+                    // ─────────────────────────────────────────────────────
+
                     geometry_msgs::msg::Pose separator;
                     separator.position.z = -1.0;
                     keypoints_msg.poses.push_back(separator);
 
 
-                    // 发布关键点：先发布 R ROI 和 Circle ROI 的特殊点，再发布其他关键点（保持与可视化一致的顺序）
-                    if (has_r_roi) {
-                        geometry_msgs::msg::Pose r_tl, r_br;
-                        r_tl.position.x = r_expanded_roi.x;
-                        r_tl.position.y = r_expanded_roi.y;
-                        r_tl.position.z = -4.0;
-                        r_br.position.x = r_expanded_roi.x + r_expanded_roi.width;
-                        r_br.position.y = r_expanded_roi.y + r_expanded_roi.height;
-                        r_br.position.z = -5.0;
-                        keypoints_msg.poses.push_back(r_tl);
-                        keypoints_msg.poses.push_back(r_br);
-                    }
-
+                    // 发布关键点：发布 Circle ROI 的特殊点，再发布其他关键点
                     if (has_c_roi) {
                         geometry_msgs::msg::Pose c_tl, c_br;
                         c_tl.position.x = c_expanded_roi.x;
@@ -1039,6 +1041,59 @@ private:
         }
     }
 
+    // 基于红色通道检测 R 圆心（参照 R_Detector.cpp）
+    // blade_center = kp[4]（扇叶中心）, blade_edge = kp[2]（扇叶外沿点）
+    cv::Point2f detect_r_center(const cv::Mat& rgb_image,
+                                 const cv::Point2f& blade_center,
+                                 const cv::Point2f& blade_edge)
+    {
+        // 1. 粗估计 R 圆心
+        cv::Point2f r_center_t = (blade_center - blade_edge) * r_detect_extend_ratio_ + blade_edge;
+
+        // 2. 计算 Mask 半径
+        double radius = cv::norm(blade_center - blade_edge) * r_detect_radius_ratio_;
+
+        // 3. 提取红色通道（RGB 图像，红色是通道 0）
+        cv::Mat red_img;
+        cv::extractChannel(rgb_image, red_img, 0);
+
+        // 4. 二值化
+        cv::Mat binary_img;
+        cv::threshold(red_img, binary_img, r_detect_threshold_, 255, cv::THRESH_BINARY);
+
+        // 5. 创建圆形 Mask 并遮罩
+        cv::Mat roi_mask = cv::Mat::zeros(rgb_image.size(), CV_8U);
+        cv::circle(roi_mask, r_center_t, static_cast<int>(radius), cv::Scalar(255), -1);
+        cv::Mat masked_binary;
+        cv::bitwise_and(binary_img, roi_mask, masked_binary);
+
+        // 6. 膨胀
+        cv::Mat dilated_img;
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT,
+            cv::Size(r_detect_dilate_kernel_, r_detect_dilate_kernel_));
+        cv::dilate(masked_binary, dilated_img, kernel, cv::Point(-1, -1), 1);
+
+        // 7. 轮廓提取 + minAreaRect 筛选
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(dilated_img, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+
+        cv::Point2f r_center = r_center_t;
+        double best_score = 1e6;
+        for (auto& it : contours) {
+            auto rotated_rect = cv::minAreaRect(it);
+            double ratio = rotated_rect.size.height > rotated_rect.size.width
+                             ? rotated_rect.size.height / rotated_rect.size.width
+                             : rotated_rect.size.width / rotated_rect.size.height;
+            ratio += cv::norm(rotated_rect.center - r_center_t) / (radius / 3.0);
+            if (ratio < best_score) {
+                best_score = ratio;
+                r_center = rotated_rect.center;
+            }
+        }
+
+        return r_center;
+    }
+
     void extract_channel(const cv::Mat& src, cv::Mat& dst) const
     {
         if (template_channel_mode_ == "red") {
@@ -1227,6 +1282,12 @@ private:
     bool enable_mode_gate_ = true;
     float roi_expand_ratio_ = 8.0f / 3.0f;  // R/Circle ROI 扩展倍数
     float r_roi_base_ratio_ = 3.0f / 5.0f;  // R base box 相对圆形包围盒的比例
+    int   r_detect_threshold_ = 17;          // R 红色通道二值化阈值
+    float r_detect_radius_ratio_ = 0.6f;     // R Mask 半径比例
+    float r_detect_extend_ratio_ = 3.1f;     // R 圆心粗估计延伸倍数
+    int   r_detect_dilate_kernel_ = 5;       // R 膨胀核大小
+    bool  enable_r_refine_ = true;            // 是否开启 kp[0] 红色通道精检测修正
+    float r_refine_max_dev_ratio_ = 0.5f;     // kp[0] 精检测偏差保护比例
 
     float template_circle_scale_;
     float template_circle_roi_scale_;
