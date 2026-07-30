@@ -36,6 +36,108 @@ inline double angular_diff(double a, double b) {
     return std::abs(std::atan2(std::sin(a - b), std::cos(a - b)));
 }
 
+// Result of A/B slot clustering (Hungarian-style minimum angular distance assignment)
+struct ClusterResult {
+    double slot_A = std::numeric_limits<double>::quiet_NaN();        // cos(yaw) assigned to slot A
+    double slot_B = std::numeric_limits<double>::quiet_NaN();        // cos(yaw) assigned to slot B
+    double roll_angle_A = std::numeric_limits<double>::quiet_NaN();  // cos(yaw*5) assigned to slot A
+    double roll_angle_B = std::numeric_limits<double>::quiet_NaN();  // cos(yaw*5) assigned to slot B
+    int index_A = -1;  // original pose array index for slot A (-1 = unassigned)
+    int index_B = -1;  // original pose array index for slot B (-1 = unassigned)
+};
+
+// A/B slot clustering (Hungarian-style) based on yaw angular distance.
+// Updates state (last_yaw_A/B, stale_A/B, initialized) and returns the slot assignment.
+ClusterResult clusterSlotsAB(
+    const std::vector<double>& roll_angles_raw,
+    const std::vector<double>& roll_angles,
+    const std::vector<double>& yaws,
+    TrackState& state,
+    double switch_threshold,
+    const rclcpp::Logger& logger)
+{
+    ClusterResult result;
+
+    if (roll_angles_raw.size() == 1) {
+        double r   = roll_angles_raw[0];
+        double yaw = yaws[0];
+        state.stale_A++;
+        state.stale_B++;
+        if (!state.initialized) {
+            state.last_yaw_A = yaw;
+            state.last_yaw_B = yaw;
+            state.initialized = true;
+            state.stale_A = 0;
+            state.stale_B = 999;
+            result.slot_A = r;
+            result.roll_angle_A = roll_angles[0];
+            result.index_A = 0;
+        } else {
+            double dist_A = angular_diff(yaw, state.last_yaw_A);
+            double dist_B = angular_diff(yaw, state.last_yaw_B);
+            // Prefer the most recently active slot;
+            // only switch if the other slot is significantly closer (in radians)
+            bool assign_to_A;
+            if (state.stale_A <= state.stale_B) {
+                assign_to_A = (dist_A - dist_B < switch_threshold);
+            } else {
+                assign_to_A = (dist_B - dist_A > switch_threshold);
+            }
+            if (assign_to_A) {
+                state.last_yaw_A = yaw;
+                state.stale_A = 0;
+                result.slot_A = r;
+                result.roll_angle_A = roll_angles[0];
+                result.index_A = 0;
+                RCLCPP_INFO(logger, "Single detection -> slot A (stale_B=%d)", state.stale_B);
+            } else {
+                state.last_yaw_B = yaw;
+                state.stale_B = 0;
+                result.slot_B = r;
+                result.roll_angle_B = roll_angles[0];
+                result.index_B = 0;
+                RCLCPP_INFO(logger, "Single detection -> slot B (stale_A=%d)", state.stale_A);
+            }
+        }
+    } else if (roll_angles_raw.size() >= 2) {
+        double r0   = roll_angles_raw[0];
+        double r1   = roll_angles_raw[1];
+        double yaw0 = yaws[0];
+        double yaw1 = yaws[1];
+        if (!state.initialized) {
+            state.last_yaw_A = yaw0;
+            state.last_yaw_B = yaw1;
+            state.initialized = true;
+            state.stale_A = 0;
+            state.stale_B = 0;
+            result.slot_A = r0; result.slot_B = r1;
+            result.roll_angle_A = roll_angles[0]; result.roll_angle_B = roll_angles[1];
+            result.index_A = 0; result.index_B = 1;
+        } else {
+            // Hungarian-style: pick assignment with minimum total angular distance
+            double cost_AB = angular_diff(yaw0, state.last_yaw_A) + angular_diff(yaw1, state.last_yaw_B);
+            double cost_BA = angular_diff(yaw0, state.last_yaw_B) + angular_diff(yaw1, state.last_yaw_A);
+            if (cost_AB <= cost_BA) {
+                result.slot_A = r0; result.slot_B = r1;
+                result.roll_angle_A = roll_angles[0]; result.roll_angle_B = roll_angles[1];
+                state.last_yaw_A = yaw0;
+                state.last_yaw_B = yaw1;
+                result.index_A = 0; result.index_B = 1;
+            } else {
+                result.slot_A = r1; result.slot_B = r0;
+                result.roll_angle_A = roll_angles[1]; result.roll_angle_B = roll_angles[0];
+                state.last_yaw_A = yaw1;
+                state.last_yaw_B = yaw0;
+                result.index_A = 1; result.index_B = 0;
+            }
+            state.stale_A = 0;
+            state.stale_B = 0;
+        }
+    }
+
+    return result;
+}
+
 // Helper function: Calculate rotation angle around transformed Z-axis
 roll_data calculateZRotationFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
     // Convert quaternion to rotation matrix
@@ -64,25 +166,27 @@ int main(int argc, char * argv[]) {
     node->declare_parameter("switch_threshold", 0.3);
     node->declare_parameter("identity_threshold", 0.6);
 
+    // 这下面很多注释掉的角度发布者是当时在做大能量机关选靶的时候为了调试选靶子功能是否稳定做的，后续不用的话可删除。
+
     // 2. Create publisher for mean z_rotation
-    auto publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles", 10);
+    //auto publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles", 10);
     // 带采集时间戳的并行话题，供 little_energy EKF 节点使用（x = roll_angle, header.stamp = 图像采集时刻）
     auto stamped_publisher = node->create_publisher<geometry_msgs::msg::Vector3Stamped>("/ene_pnp_roll_angles_stamped", 10);
     
     // 3.1 Create publisher for roll_angles_count list
-    auto count_publisher = node->create_publisher<std_msgs::msg::Int32MultiArray>("/ene_pnp_roll_angles_count", 10);
+    //auto count_publisher = node->create_publisher<std_msgs::msg::Int32MultiArray>("/ene_pnp_roll_angles_count", 10);
     
     // 3.2 Create publisher for per-pose roll angles (before averaging)
-    auto each_angle_publisher = node->create_publisher<std_msgs::msg::Float64MultiArray>("/ene_pnp_roll_angles_each", 10);
+    //auto each_angle_publisher = node->create_publisher<std_msgs::msg::Float64MultiArray>("/ene_pnp_roll_angles_each", 10);
 
     // 3.3 Create publisher for selected (oldest-appearing) target roll angle
-    auto selected_publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles_selected", 10);
+    // auto selected_publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_roll_angles_selected", 10);
 
     // 3.4 Create publisher for selected pose in A-frame (single-element PoseArray)
     auto selected_pose_publisher = node->create_publisher<geometry_msgs::msg::PoseArray>("/ene_pnp_poses_selected_a", 10);
 
     // 3.5 Create publisher for selected target raw yaw angle (radians) -> big_energy_fitting
-    auto yaw_publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_yaw", 10);
+    //auto yaw_publisher = node->create_publisher<std_msgs::msg::Float64>("/ene_pnp_yaw", 10);
 
     // Persistent A/B slot state for clustering
     auto state = std::make_shared<TrackState>();
@@ -124,95 +228,23 @@ int main(int argc, char * argv[]) {
             }
             
             // --- A/B slot clustering (Hungarian-style) based on roll_angle_raw ---
-            double slot_A = std::numeric_limits<double>::quiet_NaN();
-            double slot_B = std::numeric_limits<double>::quiet_NaN();
-            // cos(yaw*5) for each slot, used for /pnp_roll_angles
-            double roll_angle_A = std::numeric_limits<double>::quiet_NaN();
-            double roll_angle_B = std::numeric_limits<double>::quiet_NaN();
             // Save old yaw values before clustering overwrites them (for identity check)
             double old_yaw_A = state->last_yaw_A;
             double old_yaw_B = state->last_yaw_B;
-            // Track original pose array index for each slot (-1 = unassigned)
-            int index_A = -1;
-            int index_B = -1;
 
-            if (roll_angles_raw.size() == 1) {
-                double r   = roll_angles_raw[0];
-                double yaw = yaws[0];
-                state->stale_A++;
-                state->stale_B++;
-                if (!state->initialized) {
-                    state->last_yaw_A = yaw;
-                    state->last_yaw_B = yaw;
-                    state->initialized = true;
-                    state->stale_A = 0;
-                    state->stale_B = 999;
-                    slot_A = r;
-                    roll_angle_A = roll_angles[0];
-                    index_A = 0;
-                } else {
-                    double dist_A = angular_diff(yaw, state->last_yaw_A);
-                    double dist_B = angular_diff(yaw, state->last_yaw_B);
-                    // Prefer the most recently active slot;
-                    // only switch if the other slot is significantly closer (in radians)
-                    const double SWITCH_THRESHOLD = node->get_parameter("switch_threshold").as_double();
-                    bool assign_to_A;
-                    if (state->stale_A <= state->stale_B) {
-                        assign_to_A = (dist_A - dist_B < SWITCH_THRESHOLD);
-                    } else {
-                        assign_to_A = (dist_B - dist_A > SWITCH_THRESHOLD);
-                    }
-                    if (assign_to_A) {
-                        state->last_yaw_A = yaw;
-                        state->stale_A = 0;
-                        slot_A = r;
-                        roll_angle_A = roll_angles[0];
-                        index_A = 0;
-                        RCLCPP_INFO(node->get_logger(), "Single detection -> slot A (stale_B=%d)", state->stale_B);
-                    } else {
-                        state->last_yaw_B = yaw;
-                        state->stale_B = 0;
-                        slot_B = r;
-                        roll_angle_B = roll_angles[0];
-                        index_B = 0;
-                        RCLCPP_INFO(node->get_logger(), "Single detection -> slot B (stale_A=%d)", state->stale_A);
-                    }
-                }
-            } else if (roll_angles_raw.size() >= 2) {
-                double r0   = roll_angles_raw[0];
-                double r1   = roll_angles_raw[1];
-                double yaw0 = yaws[0];
-                double yaw1 = yaws[1];
-                if (!state->initialized) {
-                    state->last_yaw_A = yaw0;
-                    state->last_yaw_B = yaw1;
-                    state->initialized = true;
-                    state->stale_A = 0;
-                    state->stale_B = 0;
-                    slot_A = r0; slot_B = r1;
-                    roll_angle_A = roll_angles[0]; roll_angle_B = roll_angles[1];
-                    index_A = 0; index_B = 1;
-                } else {
-                    // Hungarian-style: pick assignment with minimum total angular distance
-                    double cost_AB = angular_diff(yaw0, state->last_yaw_A) + angular_diff(yaw1, state->last_yaw_B);
-                    double cost_BA = angular_diff(yaw0, state->last_yaw_B) + angular_diff(yaw1, state->last_yaw_A);
-                    if (cost_AB <= cost_BA) {
-                        slot_A = r0; slot_B = r1;
-                        roll_angle_A = roll_angles[0]; roll_angle_B = roll_angles[1];
-                        state->last_yaw_A = yaw0;
-                        state->last_yaw_B = yaw1;
-                        index_A = 0; index_B = 1;
-                    } else {
-                        slot_A = r1; slot_B = r0;
-                        roll_angle_A = roll_angles[1]; roll_angle_B = roll_angles[0];
-                        state->last_yaw_A = yaw1;
-                        state->last_yaw_B = yaw0;
-                        index_A = 1; index_B = 0;
-                    }
-                    state->stale_A = 0;
-                    state->stale_B = 0;
-                }
-            }
+            const double SWITCH_THRESHOLD = node->get_parameter("switch_threshold").as_double();
+            ClusterResult cluster = clusterSlotsAB(
+                roll_angles_raw, roll_angles, yaws, *state, SWITCH_THRESHOLD, node->get_logger());
+
+            // Unpack for downstream logic
+            double slot_A = cluster.slot_A;
+            double slot_B = cluster.slot_B;
+            // cos(yaw*5) for each slot, used for /pnp_roll_angles
+            double roll_angle_A = cluster.roll_angle_A;
+            double roll_angle_B = cluster.roll_angle_B;
+            // Original pose array index for each slot (-1 = unassigned)
+            int index_A = cluster.index_A;
+            int index_B = cluster.index_B;
 
             // --- Age update with identity check, then target selection ---
             // If yaw jumps more than this threshold, treat it as a new identity
