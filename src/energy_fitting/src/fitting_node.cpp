@@ -145,7 +145,7 @@ roll_data calculateZRotationFromQuaternion(const geometry_msgs::msg::Quaternion&
     
     //看theory.md中的公式推导
     
-    double up = 2 * (q.w * q.z + q.x * q.y);
+    double up = 2 * (q.w * q.z - q.x * q.y);
     double down = 1 - 2*(y*y + z*z);
     double yaw = std::atan2(up, down);
     roll_data z_rotation;
