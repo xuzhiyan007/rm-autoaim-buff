@@ -46,6 +46,33 @@ struct ClusterResult {
     int index_B = -1;  // original pose array index for slot B (-1 = unassigned)
 };
 
+// Result of target selection (age-based oldest-target strategy)
+struct SelectionResult {
+    double selected_roll = std::numeric_limits<double>::quiet_NaN();      // cos(yaw) of selected target
+    double selected_roll_5x = std::numeric_limits<double>::quiet_NaN();   // cos(yaw*5) of selected target
+    int selected_index = -1;  // original pose array index of selected target (-1 = none)
+};
+
+// Helper function: Calculate rotation angle around transformed Z-axis
+roll_data calculateZRotationFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
+    // Convert quaternion to rotation matrix
+    double w = q.w, x = q.x, y = q.y, z = q.z;
+    
+    //看theory.md中的公式推导
+    
+    double up = 2 * (q.w * q.z - q.x * q.y); 
+    double down = 1 - 2*(y*y + z*z);
+    double yaw = std::atan2(up, down);
+    roll_data z_rotation;
+    z_rotation.yaw            = yaw;
+    z_rotation.roll_angle     = std::cos(yaw * 5);   // for /pnp_roll_angles
+    z_rotation.roll_angle_raw = std::cos(yaw);        // for /pnp_roll_angles_each
+    constexpr double DIFF = 2.0 * M_PI / 5.0;
+    z_rotation.count = std::floor(yaw / DIFF);
+    return z_rotation;
+}
+
+
 // A/B slot clustering (Hungarian-style) based on yaw angular distance.
 // Updates state (last_yaw_A/B, stale_A/B, initialized) and returns the slot assignment.
 ClusterResult clusterSlotsAB(
@@ -138,23 +165,69 @@ ClusterResult clusterSlotsAB(
     return result;
 }
 
-// Helper function: Calculate rotation angle around transformed Z-axis
-roll_data calculateZRotationFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
-    // Convert quaternion to rotation matrix
-    double w = q.w, x = q.x, y = q.y, z = q.z;
-    
-    //看theory.md中的公式推导
-    
-    double up = 2 * (q.w * q.z - q.x * q.y);
-    double down = 1 - 2*(y*y + z*z);
-    double yaw = std::atan2(up, down);
-    roll_data z_rotation;
-    z_rotation.yaw            = yaw;
-    z_rotation.roll_angle     = std::cos(yaw * 5);   // for /pnp_roll_angles
-    z_rotation.roll_angle_raw = std::cos(yaw);        // for /pnp_roll_angles_each
-    constexpr double DIFF = 2.0 * M_PI / 5.0;
-    z_rotation.count = std::floor(yaw / DIFF);
-    return z_rotation;
+// Target selection: updates age with identity check, then selects the oldest-appearing target.
+// Returns the selected target's cos(yaw), cos(yaw*5), and original pose array index.
+SelectionResult selectTarget(
+    const ClusterResult& cluster,
+    TrackState& state,
+    double old_yaw_A,
+    double old_yaw_B,
+    double identity_threshold,
+    const rclcpp::Logger& logger)
+{
+    double slot_A = cluster.slot_A;
+    double slot_B = cluster.slot_B;
+    double roll_angle_A = cluster.roll_angle_A;
+    double roll_angle_B = cluster.roll_angle_B;
+    int index_A = cluster.index_A;
+    int index_B = cluster.index_B;
+
+    // --- Age update with identity check ---
+    // Slot A age
+    if (std::isnan(slot_A)) {
+        state.age_A = 0;
+    } else if (!state.was_A_active ||
+               angular_diff(state.last_yaw_A, old_yaw_A) > identity_threshold) {
+        state.age_A = 1;  // new or replaced target
+    } else {
+        state.age_A++;
+    }
+    state.was_A_active = !std::isnan(slot_A);
+
+    // Slot B age
+    if (std::isnan(slot_B)) {
+        state.age_B = 0;
+    } else if (!state.was_B_active ||
+               angular_diff(state.last_yaw_B, old_yaw_B) > identity_threshold) {
+        state.age_B = 1;  // new or replaced target
+    } else {
+        state.age_B++;
+    }
+    state.was_B_active = !std::isnan(slot_B);
+
+    // --- Select oldest-appearing target ---
+    //   both present  -> higher age wins; tie (simultaneous appearance) -> slot A
+    //   only one      -> that one
+    SelectionResult result;
+    if (!std::isnan(slot_A) && !std::isnan(slot_B)) {
+        bool pick_A = (state.age_A >= state.age_B);
+        result.selected_roll = pick_A ? slot_A : slot_B;
+        result.selected_roll_5x = pick_A ? roll_angle_A : roll_angle_B;
+        result.selected_index = pick_A ? index_A : index_B;
+        RCLCPP_INFO(logger,
+            "Both slots active: age_A=%d age_B=%d -> selected %s",
+            state.age_A, state.age_B, pick_A ? "A" : "B");
+    } else if (!std::isnan(slot_A)) {
+        result.selected_roll = slot_A;
+        result.selected_roll_5x = roll_angle_A;
+        result.selected_index = index_A;
+    } else if (!std::isnan(slot_B)) {
+        result.selected_roll = slot_B;
+        result.selected_roll_5x = roll_angle_B;
+        result.selected_index = index_B;
+    }
+
+    return result;
 }
 
 int main(int argc, char * argv[]) {
@@ -236,69 +309,13 @@ int main(int argc, char * argv[]) {
             ClusterResult cluster = clusterSlotsAB(
                 roll_angles_raw, roll_angles, yaws, *state, SWITCH_THRESHOLD, node->get_logger());
 
-            // Unpack for downstream logic
-            double slot_A = cluster.slot_A;
-            double slot_B = cluster.slot_B;
-            // cos(yaw*5) for each slot, used for /pnp_roll_angles
-            double roll_angle_A = cluster.roll_angle_A;
-            double roll_angle_B = cluster.roll_angle_B;
-            // Original pose array index for each slot (-1 = unassigned)
-            int index_A = cluster.index_A;
-            int index_B = cluster.index_B;
-
-            // --- Age update with identity check, then target selection ---
-            // If yaw jumps more than this threshold, treat it as a new identity
+            // --- Target selection (age-based oldest-target strategy) ---
             const double IDENTITY_THRESHOLD = node->get_parameter("identity_threshold").as_double();
+            SelectionResult selection = selectTarget(
+                cluster, *state, old_yaw_A, old_yaw_B, IDENTITY_THRESHOLD, node->get_logger());
 
-            // Slot A age
-            if (std::isnan(slot_A)) {
-                state->age_A = 0;
-            } else if (!state->was_A_active ||
-                       angular_diff(state->last_yaw_A, old_yaw_A) > IDENTITY_THRESHOLD) {
-                state->age_A = 1;  // new or replaced target
-            } else {
-                state->age_A++;
-            }
-            state->was_A_active = !std::isnan(slot_A);
-
-            // Slot B age
-            if (std::isnan(slot_B)) {
-                state->age_B = 0;
-            } else if (!state->was_B_active ||
-                       angular_diff(state->last_yaw_B, old_yaw_B) > IDENTITY_THRESHOLD) {
-                state->age_B = 1;  // new or replaced target
-            } else {
-                state->age_B++;
-            }
-            state->was_B_active = !std::isnan(slot_B);
-
-            // Select oldest-appearing target:
-            //   both present  → higher age wins; tie (simultaneous appearance) → slot A
-            //   only one      → that one
-            double selected_roll = std::numeric_limits<double>::quiet_NaN();
-            int selected_index = -1;
-            if (!std::isnan(slot_A) && !std::isnan(slot_B)) {
-                bool pick_A = (state->age_A >= state->age_B);
-                selected_roll = pick_A ? slot_A : slot_B;
-                selected_index = pick_A ? index_A : index_B;
-                RCLCPP_INFO(node->get_logger(),
-                    "Both slots active: age_A=%d age_B=%d -> selected %s",
-                    state->age_A, state->age_B,
-                    pick_A ? "A" : "B");
-            } else if (!std::isnan(slot_A)) {
-                selected_roll = slot_A;
-                selected_index = index_A;
-            } else if (!std::isnan(slot_B)) {
-                selected_roll = slot_B;
-                selected_index = index_B;
-            }
-
-            // Publish selected target roll angle
-            auto selected_msg = std_msgs::msg::Float64();
-            selected_msg.data = selected_roll;
-            selected_publisher->publish(selected_msg);
-            RCLCPP_INFO(node->get_logger(), "Published selected roll: %.6f to /pnp_roll_angles_selected",
-                        selected_roll);
+            int selected_index = selection.selected_index;
+            double selected_roll_angle_5x = selection.selected_roll_5x;
 
             // Publish selected pose in A-frame to /pnp_poses_selected_a
             if (selected_index >= 0 && static_cast<size_t>(selected_index) < msg->poses.size()) {
@@ -310,49 +327,11 @@ int main(int argc, char * argv[]) {
                             selected_index);
             }
 
-            // Publish selected target's raw yaw angle (radians) to /ene_pnp_yaw
-            if (selected_index >= 0 && static_cast<size_t>(selected_index) < yaws.size()) {
-                auto yaw_msg = std_msgs::msg::Float64();
-                yaw_msg.data = yaws[selected_index];
-                yaw_publisher->publish(yaw_msg);
-                RCLCPP_INFO(node->get_logger(), "Published raw yaw: %.6f rad to /ene_pnp_yaw",
-                            yaws[selected_index]);
-            }
-
-            auto each_angle_msg = std_msgs::msg::Float64MultiArray();
-            each_angle_msg.data = {slot_A, slot_B};
-            each_angle_publisher->publish(each_angle_msg);
-            RCLCPP_INFO(node->get_logger(), "Published clustered roll angles [%.6f, %.6f] to /pnp_roll_angles_each",
-                        slot_A, slot_B);
-            
-            // Publish selected target's cos(yaw*5) to /pnp_roll_angles
-            double selected_roll_angle_5x = std::numeric_limits<double>::quiet_NaN();
-            if (!std::isnan(slot_A) && !std::isnan(slot_B)) {
-                selected_roll_angle_5x = (state->age_A >= state->age_B) ? roll_angle_A : roll_angle_B;
-            } else if (!std::isnan(slot_A)) {
-                selected_roll_angle_5x = roll_angle_A;
-            } else if (!std::isnan(slot_B)) {
-                selected_roll_angle_5x = roll_angle_B;
-            }
-            auto output_msg = std_msgs::msg::Float64();
-            output_msg.data = selected_roll_angle_5x;
-            publisher->publish(output_msg);
-            
             // 同步发布带采集时间戳的话题（透传上游图像采集时刻）
             auto stamped_msg = geometry_msgs::msg::Vector3Stamped();
             stamped_msg.header = msg->header;  // 继承图像采集时间戳
             stamped_msg.vector.x = selected_roll_angle_5x;
             stamped_publisher->publish(stamped_msg);
-            
-            // Publish roll_angles_count list
-            auto count_msg = std_msgs::msg::Int32MultiArray();
-            count_msg.data = roll_angles_count;
-            count_publisher->publish(count_msg);
-            
-            RCLCPP_INFO(node->get_logger(), "Published selected roll_angle(cos*5): %.6f to /pnp_roll_angles",
-                       selected_roll_angle_5x);
-            RCLCPP_INFO(node->get_logger(), "Published roll_angles_count list with %zu elements", 
-                       roll_angles_count.size());
         }
     );
     
