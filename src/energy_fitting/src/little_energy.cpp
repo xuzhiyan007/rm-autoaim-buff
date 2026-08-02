@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <energy_fitting/srv/predict_energy.hpp>
 #include <cmath>
 #include <chrono>
@@ -46,14 +47,14 @@ public:
         double initial_p_omega = this->get_parameter("initial_p_omega").as_double();
         P_ = {initial_p_c, 0.0, 0.0, initial_p_omega};  // Row-major: [P00, P01, P10, P11]
         
-        // Initialize time
-        start_time_ = this->now();
-        last_measurement_time_ = this->now();
+        // Initialize time (start_time_ = 0 signals "first message not yet received")
+        start_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+        last_measurement_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
         current_angle_ = 0.0;
         
-        // Create subscriber
-        subscription_ = this->create_subscription<std_msgs::msg::Float64>(
-            "/ene_pnp_roll_angles", 10,
+        // Create subscriber (Vector3Stamped, x = cos(5*yaw), header.stamp = image capture time)
+        subscription_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+            "/ene_pnp_roll_angles_stamped", 10,
             std::bind(&EKFNode::measurementCallback, this, std::placeholders::_1));
         
         // Create publisher
@@ -116,15 +117,23 @@ private:
      * @brief Callback function for measurement updates
      * @param msg Measurement message from /pnp_roll_angles
      */
-    void measurementCallback(const std_msgs::msg::Float64::SharedPtr msg)
+    void measurementCallback(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
     {
-        // Get current time and calculate elapsed time since start
-        auto current_time = this->now();
-        double t = (current_time - start_time_).seconds();
-        double dt = (current_time - last_measurement_time_).seconds();
-        last_measurement_time_ = current_time;
-        
-        double z = msg->data;  // Measurement
+        // Use image capture timestamp from header (consistent with upstream fitting_node)
+        rclcpp::Time stamp = msg->header.stamp;
+
+        // On first message, initialize start_time_ to the first image timestamp
+        if (start_time_.nanoseconds() == 0) {
+            start_time_ = stamp;
+            last_measurement_time_ = stamp;
+            return;  // skip first frame, no dt available yet
+        }
+
+        double t = (stamp - start_time_).seconds();
+        double dt = (stamp - last_measurement_time_).seconds();
+        last_measurement_time_ = stamp;
+
+        double z = msg->vector.x;  // Measurement: cos(5*yaw)
         
         // Store current angle
         current_angle_ = z;
@@ -208,7 +217,7 @@ private:
     }
     
     // Subscriptions and publishers
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscription_;
+    rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr subscription_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr prediction_publisher_;
     
     // Service server
