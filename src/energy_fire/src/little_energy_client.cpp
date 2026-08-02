@@ -44,8 +44,8 @@ public:
       "/ene_energy_processor/energy_target", 10);
 
     // 创建 /debug_result 发布者 (x=result[0], y=result[1], z=result[2])
-    debug_pub_ = this->create_publisher<geometry_msgs::msg::Vector3>(
-      "/ene_debug_result", 10);
+    // debug_pub_ = this->create_publisher<geometry_msgs::msg::Vector3>(
+    //   "/ene_debug_result", 10);
 
     // 订阅 /joint_states，获取串口驱动发布的当前 yaw 和 pitch 值
     joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -131,13 +131,13 @@ private:
     // delta_mu 写死：预测角 = dt * (±π/3 rad/s)，方向由 clockwise 参数决定
     dt_ = dt_ + FIRE_LATENCY + OFFSET;
 
-    double delta_mu = clockwise_ ? dt_ * (M_PI / 3.0) : dt_ * (-M_PI / 3.0);
+    delta_mu_ = clockwise_ ? dt_ * (M_PI / 3.0) : dt_ * (-M_PI / 3.0);
     RCLCPP_INFO(this->get_logger(),
       "[hardcoded] delta_mu = dt(%.4f) * %s(pi/3) = %.6f rad",
-      dt_, clockwise_ ? "+" : "-", delta_mu);
+      dt_, clockwise_ ? "+" : "-", delta_mu_);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    target_req->delta_mu = delta_mu;
+    target_req->delta_mu = delta_mu_;
 
     state_.store(STATE_WAITING_COMPUTE);
     target_client_->async_send_request(target_req,
@@ -160,8 +160,10 @@ private:
                "/predict_energy success! delta_mu = %.6f rad", predict_resp->delta_mu);
 
     auto target_req = std::make_shared<energy_pose_transform::srv::ComputeTargetLocation::Request>();
-    //target_req->delta_mu = predict_resp->delta_mu;
-    target_req->delta_mu = 0.54; //TODO
+
+    target_req->delta_mu = delta_mu_;
+    // target_req->delta_mu = predict_resp->delta_mu;  // EKF服务路径（备用）
+    // target_req->delta_mu = 0.54; //TODO
 
     RCLCPP_INFO(this->get_logger(),
                "Calling /compute_target_location (async) with delta_mu=%.6f",
@@ -312,6 +314,7 @@ private:
   double bullet_speed_;
   bool enable_mode_gate_{true};
   bool clockwise_{true};  // true=顺时针, false=逆时针
+  double delta_mu_{0.0};   // 硬编码的预测角度差
 
   // 外部状态（由订阅回调更新）
   std::atomic<uint8_t> robot_mode_{2};  // 默认 ARMOR，serial_driver 启动后快速修正
