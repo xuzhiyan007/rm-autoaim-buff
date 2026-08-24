@@ -185,7 +185,7 @@ void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
         if (msg->name[i] == "pitch_joint") {
 
             //在这里改订阅的pitch 和yaw
-            new_theta = -msg->position[i];
+                        new_theta = -msg->position[i];
             //new_theta = 0.0;
         } else if (msg->name[i] == "yaw_joint") {
             new_gamma = -msg->position[i];
@@ -237,7 +237,8 @@ void computeTargetLocationService(
 
     // Check if we have received pose data from /pnp_poses_select
     if (!g_latest_selected_poses || g_latest_selected_poses->poses.empty()) {
-        RCLCPP_WARN(g_node->get_logger(), "No selected pose data available from /pnp_poses_select");
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 3000,
+                             "No selected pose data available from /pnp_poses_select");
         response->success = false;
         return;
     }
@@ -301,9 +302,17 @@ void computeTargetLocationService(
     // Publish to /target_location topic
     g_target_location_pub->publish(p_final);
 
-    RCLCPP_INFO(g_node->get_logger(), 
-                "Computed target location: [%.3f, %.3f, %.3f] with delta_mu=%.3f rad",
-                p_final.x, p_final.y, p_final.z, delta_mu);
+    static bool logged_first_target_success = false;
+    if (!logged_first_target_success) {
+        RCLCPP_INFO(g_node->get_logger(),
+                    "Computed target location first success: [%.3f, %.3f, %.3f] with delta_mu=%.3f rad",
+                    p_final.x, p_final.y, p_final.z, delta_mu);
+        logged_first_target_success = true;
+    } else {
+        RCLCPP_DEBUG(g_node->get_logger(),
+                    "Computed target location: [%.3f, %.3f, %.3f] with delta_mu=%.3f rad",
+                    p_final.x, p_final.y, p_final.z, delta_mu);
+    }
 }
 
 int main(int argc, char** argv)
@@ -314,7 +323,7 @@ int main(int argc, char** argv)
 
     // 2. 从配置文件读取逆变换的平移参数
     try {
-        std::string package_share_dir = ament_index_cpp::get_package_share_directory("pose_transform");
+        std::string package_share_dir = ament_index_cpp::get_package_share_directory("energy_pose_transform");
         std::string config_file = package_share_dir + "/config/transform_params.yaml";
         
         RCLCPP_INFO(g_node->get_logger(), "Loading inverse transform config from: %s", config_file.c_str());

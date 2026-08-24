@@ -100,8 +100,8 @@ void quaternionMultiply(const double q1[4], const double q2[4], double result[4]
     result[3] = q1[0]*q2[3] + q1[1]*q2[2] - q1[2]*q2[1] + q1[3]*q2[0];
 }
 
-// 从A系到C系的坐标变换函数
-geometry_msgs::msg::Pose transformPoseFromAToC(const geometry_msgs::msg::Pose& pose_a, double gamma)
+// 从A系到C系的坐标变换函数（theta 由调用方传入，避免使用过期的全局值）
+geometry_msgs::msg::Pose transformPoseFromAToC(const geometry_msgs::msg::Pose& pose_a, double theta, double gamma)
 {
     geometry_msgs::msg::Pose pose_c;
 
@@ -110,8 +110,8 @@ geometry_msgs::msg::Pose transformPoseFromAToC(const geometry_msgs::msg::Pose& p
     double y_a = pose_a.position.y;
     double z_a = pose_a.position.z;
 
-    double cos_theta = std::cos(g_theta);
-    double sin_theta = std::sin(g_theta);
+    double cos_theta = std::cos(theta);
+    double sin_theta = std::sin(theta);
     double cos_gamma = std::cos(gamma);
     double sin_gamma = std::sin(gamma);
 
@@ -141,7 +141,7 @@ geometry_msgs::msg::Pose transformPoseFromAToC(const geometry_msgs::msg::Pose& p
     double q_a[4] = {pose_a.orientation.w, pose_a.orientation.x, pose_a.orientation.y, pose_a.orientation.z};
 
     // q_BA: 绕x轴旋转θ
-    double q_ba[4] = {std::cos(g_theta/2.0), std::sin(g_theta/2.0), 0.0, 0.0};
+    double q_ba[4] = {std::cos(theta/2.0), std::sin(theta/2.0), 0.0, 0.0};
 
     // q_CB: 绕y轴旋转γ
     double q_cb[4] = {std::cos(gamma/2.0), 0.0, std::sin(gamma/2.0), 0.0};
@@ -207,14 +207,15 @@ void posesCallback(const geometry_msgs::msg::PoseArray::ConstSharedPtr& poses_ms
 
     for (size_t i = 0; i < g_latest_poses->poses.size(); ++i) {
         const auto& pose_a = g_latest_poses->poses[i];
-        geometry_msgs::msg::Pose pose_c = transformPoseFromAToC(pose_a, sync_gamma);
+        geometry_msgs::msg::Pose pose_c = transformPoseFromAToC(pose_a, sync_theta, sync_gamma);
         transformed_poses.poses.push_back(pose_c);
     }
 
     g_transformed_poses_pub->publish(transformed_poses);
 
-    RCLCPP_DEBUG(g_node->get_logger(), "Transformed %zu poses from A-frame to C-frame (synced with JointState)",
-                 g_latest_poses->poses.size());
+    RCLCPP_INFO(g_node->get_logger(),
+                "A2C solving angles: theta=%.4f rad, gamma=%.4f rad, transformed %zu poses",
+                sync_theta, sync_gamma, g_latest_poses->poses.size());
 }
 
 // 选中位姿回调函数 - 将 /pnp_poses_selected_a 变换到C系，发布为 /pnp_poses_select
@@ -227,19 +228,32 @@ void selectedPosesCallback(const geometry_msgs::msg::PoseArray::ConstSharedPtr& 
     double sync_gamma = g_gamma;
     jointStateCallback(joint_msg, sync_theta, sync_gamma);
 
+    // 同步更新全局角度，保持 g_theta/g_gamma 为最新值（避免主链路停发时使用过期pitch）
+    g_theta = sync_theta;
+    g_gamma = sync_gamma;
+
     geometry_msgs::msg::PoseArray transformed_poses;
     transformed_poses.header = poses_msg->header;
     transformed_poses.header.frame_id = "c_frame";
 
     for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
         const auto& pose_a = poses_msg->poses[i];
-        geometry_msgs::msg::Pose pose_c = transformPoseFromAToC(pose_a, sync_gamma);
+        geometry_msgs::msg::Pose pose_c = transformPoseFromAToC(pose_a, sync_theta, sync_gamma);
         transformed_poses.poses.push_back(pose_c);
     }
 
     g_selected_poses_pub->publish(transformed_poses);
 
-    RCLCPP_DEBUG(g_node->get_logger(), "Transformed selected pose to C-frame, published to /pnp_poses_select");
+    static bool logged_first_selected_a2c_success = false;
+    if (!logged_first_selected_a2c_success) {
+        RCLCPP_INFO(g_node->get_logger(),
+                    "Selected A2C first success: theta=%.4f rad, gamma=%.4f rad",
+                    sync_theta, sync_gamma);
+        logged_first_selected_a2c_success = true;
+    } else {
+        RCLCPP_DEBUG(g_node->get_logger(),
+                    "Selected A2C synced: theta=%.4f rad, gamma=%.4f rad", sync_theta, sync_gamma);
+    }
 }
 
 int main(int argc, char** argv)
@@ -250,7 +264,7 @@ int main(int argc, char** argv)
 
     // 2. 从配置文件读取平移参数
     try {
-        std::string package_share_dir = ament_index_cpp::get_package_share_directory("pose_transform");
+        std::string package_share_dir = ament_index_cpp::get_package_share_directory("energy_pose_transform");
         std::string config_file = package_share_dir + "/config/transform_params.yaml";
         
         RCLCPP_INFO(g_node->get_logger(), "Loading config from: %s", config_file.c_str());
@@ -305,10 +319,10 @@ int main(int argc, char** argv)
     g_selected_poses_pub = g_node->create_publisher<geometry_msgs::msg::PoseArray>(
         "/ene_pnp_poses_select", 10);
 
-    RCLCPP_INFO(g_node->get_logger(), "Subscribed to: /pnp_poses");
-    RCLCPP_INFO(g_node->get_logger(), "Subscribed to: /pnp_poses_selected_a");
-    RCLCPP_INFO(g_node->get_logger(), "Publishing to: /pnp_poses_ground");
-    RCLCPP_INFO(g_node->get_logger(), "Publishing to: /pnp_poses_select");
+    RCLCPP_INFO(g_node->get_logger(), "Subscribed to: /ene_pnp_poses + /joint_states");
+    RCLCPP_INFO(g_node->get_logger(), "Subscribed to: /ene_pnp_poses_selected_a + /joint_states");
+    RCLCPP_INFO(g_node->get_logger(), "Publishing to: /ene_pnp_poses_ground");
+    RCLCPP_INFO(g_node->get_logger(), "Publishing to: /ene_pnp_poses_select");
 
     // 6. 运行节点
     rclcpp::spin(g_node);
