@@ -132,9 +132,9 @@ private:
         this->declare_parameter("enable_mode_gate", false);           // 是否启用 /robot_mode 门控
         this->declare_parameter("roi_expand_ratio", 8.0 / 3.0);     // R/Circle ROI 扩展倍数（base_box → expanded_roi）
         this->declare_parameter("r_roi_base_ratio", 3.0 / 5.0);     // R base box 相对圆形包围盒（c_base_box）的宽高比例
-        this->declare_parameter("r_detect_threshold", 17);            // R 红色通道二值化阈值
-        this->declare_parameter("r_detect_radius_ratio", 0.6);        // R Mask 半径比例（相对 kp4-kp2 距离）
-        this->declare_parameter("r_detect_extend_ratio", 3.1);        // R 圆心粗估计延伸倍数
+        this->declare_parameter("r_detect_threshold", 27);            // R 红色通道二值化阈值
+        this->declare_parameter("r_detect_radius_ratio", 1.1);        // R Mask 半径比例（相对 kp4-kp2 距离）
+        this->declare_parameter("r_detect_extend_ratio", 2.4);        // R 圆心粗估计延伸倍数
         this->declare_parameter("r_detect_dilate_kernel", 5);         // R 膨胀核大小
         this->declare_parameter("enable_r_refine", true);              // 是否开启 kp[0] 红色通道精检测修正
         this->declare_parameter("r_refine_max_dev_ratio", 0.5);        // kp[0] 精检测偏差保护比例（相对检测框对角线）
@@ -686,6 +686,58 @@ private:
                                 "kp[0] refined: NN=(%.1f,%.1f) -> red_ch=(%.1f,%.1f) offset=%.1fpx",
                                 orig_x, orig_y, refined.x, refined.y, std::sqrt(dx * dx + dy * dy));
                         }
+                        // ── R 检测可视化 ─────────────────────────────────
+                        if (enable_visualization_) {
+                            // 1. 提取红色通道并二值化（整张图）
+                            cv::Mat red_channel;
+                            cv::extractChannel(image, red_channel, 0);
+                            cv::Mat binary_full;
+                            cv::threshold(red_channel, binary_full, r_detect_threshold_, 255, cv::THRESH_BINARY);
+
+                            // 2. 粗估计 R 圆心 + 半径
+                            cv::Point2f r_center_raw = (kp2 - kp4) * r_detect_extend_ratio_ + kp2;
+                            double r_radius = cv::norm(kp2 - kp4) * r_detect_radius_ratio_;
+
+                            // 3. 创建圆形 Mask 并遮罩
+                            cv::Mat roi_mask_full = cv::Mat::zeros(image.size(), CV_8U);
+                            cv::circle(roi_mask_full, r_center_raw, static_cast<int>(r_radius), cv::Scalar(255), -1);
+                            cv::Mat masked_full;
+                            cv::bitwise_and(binary_full, roi_mask_full, masked_full);
+
+                            // 4. 膨胀
+                            cv::Mat dilated_full;
+                            cv::Mat kernel_r = cv::getStructuringElement(cv::MORPH_RECT,
+                                cv::Size(r_detect_dilate_kernel_, r_detect_dilate_kernel_));
+                            cv::dilate(masked_full, dilated_full, kernel_r, cv::Point(-1, -1), 1);
+
+                            // 5. 转为 BGR 以便绘制彩色标注
+                            cv::Mat r_viz;
+                            cv::cvtColor(dilated_full, r_viz, cv::COLOR_GRAY2BGR);
+
+                            // 6. 绘制遮罩圆（绿色圆）
+                            cv::circle(r_viz, r_center_raw, static_cast<int>(r_radius), cv::Scalar(0, 255, 0), 2);
+
+                            // 7. 绘制关键点
+                            // kp4 (blade_center) - 蓝色
+                            cv::circle(r_viz, kp4, 5, cv::Scalar(255, 0, 0), -1);
+                            cv::putText(r_viz, "kp4", kp4 + cv::Point2f(8, -8),
+                                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 0, 0), 1);
+                            // kp2 (blade_edge) - 青色
+                            cv::circle(r_viz, kp2, 5, cv::Scalar(255, 255, 0), -1);
+                            cv::putText(r_viz, "kp2", kp2 + cv::Point2f(8, -8),
+                                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 0), 1);
+                            // 粗估计 R 圆心 - 黄色
+                            cv::circle(r_viz, r_center_raw, 5, cv::Scalar(0, 255, 255), -1);
+                            cv::putText(r_viz, "r_est", r_center_raw + cv::Point2f(8, -8),
+                                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 255, 255), 1);
+                            // 精检测 R 圆心 - 红色
+                            cv::circle(r_viz, refined, 5, cv::Scalar(0, 0, 255), -1);
+                            cv::putText(r_viz, "R", refined + cv::Point2f(8, -8),
+                                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 0, 255), 1);
+
+                            cv::imshow("R Detection", r_viz);
+                        }
+                        // ─────────────────────────────────────────────────
                     }
                     // ─────────────────────────────────────────────────────
 
@@ -741,13 +793,25 @@ private:
                 // 更新 avg_sift_ms EMA（包含模板匹配+kp0补帧+消息组装）
                 perf_stats_.avg_sift_ms = 0.9 * perf_stats_.avg_sift_ms + 0.1 * ms_sift;
 
-                RCLCPP_INFO(this->get_logger(),
+                static bool logged_first_timing_success = false;
+                if (!logged_first_timing_success) {
+                    RCLCPP_INFO(this->get_logger(),
 #ifdef USE_YOLO26
-                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
 #else
-                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
 #endif
-                    ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
+                        ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
+                    logged_first_timing_success = true;
+                } else {
+                    RCLCPP_DEBUG(this->get_logger(),
+#ifdef USE_YOLO26
+                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+#else
+                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+#endif
+                        ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
+                }
             } else {
                 auto t_end = std::chrono::high_resolution_clock::now();
                 auto ms_convert = std::chrono::duration_cast<std::chrono::microseconds>(t_convert - t_start).count() / 1000.0;
@@ -755,7 +819,7 @@ private:
                 auto ms_nms     = std::chrono::duration_cast<std::chrono::microseconds>(t_nms     - t_infer).count() / 1000.0;
                 auto ms_total   = std::chrono::duration_cast<std::chrono::microseconds>(t_end     - t_start).count() / 1000.0;
 
-                RCLCPP_INFO(this->get_logger(),
+                RCLCPP_DEBUG(this->get_logger(),
 #ifdef USE_YOLO26
                     "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | sift=0.00ms | pub=0.00ms | dets=0",
 #else
@@ -1025,7 +1089,7 @@ private:
             if (perf_stats_.total_frames % 100 == 0) {
                 double total_avg = perf_stats_.avg_preprocess_ms + perf_stats_.avg_inference_ms + 
                                  perf_stats_.avg_postprocess_ms + perf_stats_.avg_sift_ms;
-                RCLCPP_INFO(this->get_logger(), 
+                RCLCPP_DEBUG(this->get_logger(),
                     "Perf[frame=%ld] Preprocess=%.2fms Inference=%.2fms Postprocess=%.2fms SIFT=%.2fms Total=%.2fms FPS=%.1f",
                     perf_stats_.total_frames,
                     perf_stats_.avg_preprocess_ms,
@@ -1047,8 +1111,8 @@ private:
                                  const cv::Point2f& blade_center,
                                  const cv::Point2f& blade_edge)
     {
-        // 1. 粗估计 R 圆心
-        cv::Point2f r_center_t = (blade_center - blade_edge) * r_detect_extend_ratio_ + blade_edge;
+        // 1. 粗估计 R 圆心（方向: kp2→kp4, 从 blade_edge 出发沿 blade_edge→blade_center 方向延伸）
+        cv::Point2f r_center_t = (blade_edge - blade_center) * r_detect_extend_ratio_ + blade_edge;
 
         // 2. 计算 Mask 半径
         double radius = cv::norm(blade_center - blade_edge) * r_detect_radius_ratio_;
