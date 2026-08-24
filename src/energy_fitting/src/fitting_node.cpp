@@ -116,14 +116,14 @@ ClusterResult clusterSlotsAB(
                 result.slot_A = r;
                 result.roll_angle_A = roll_angles[0];
                 result.index_A = 0;
-                RCLCPP_INFO(logger, "Single detection -> slot A (stale_B=%d)", state.stale_B);
+                RCLCPP_DEBUG(logger, "Single detection -> slot A (stale_B=%d)", state.stale_B);
             } else {
                 state.last_yaw_B = yaw;
                 state.stale_B = 0;
                 result.slot_B = r;
                 result.roll_angle_B = roll_angles[0];
                 result.index_B = 0;
-                RCLCPP_INFO(logger, "Single detection -> slot B (stale_A=%d)", state.stale_A);
+                RCLCPP_DEBUG(logger, "Single detection -> slot B (stale_A=%d)", state.stale_A);
             }
         }
     } else if (roll_angles_raw.size() >= 2) {
@@ -214,7 +214,7 @@ SelectionResult selectTarget(
         result.selected_roll = pick_A ? slot_A : slot_B;
         result.selected_roll_5x = pick_A ? roll_angle_A : roll_angle_B;
         result.selected_index = pick_A ? index_A : index_B;
-        RCLCPP_INFO(logger,
+        RCLCPP_DEBUG(logger,
             "Both slots active: age_A=%d age_B=%d -> selected %s",
             state.age_A, state.age_B, pick_A ? "A" : "B");
     } else if (!std::isnan(slot_A)) {
@@ -268,8 +268,9 @@ int main(int argc, char * argv[]) {
     auto subscription = node->create_subscription<geometry_msgs::msg::PoseArray>(
         "/ene_pnp_poses", 10,
         [=](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+            static bool logged_first_fitting_success = false;
             
-            RCLCPP_INFO(node->get_logger(), "Received PnP poses message with %zu poses", msg->poses.size());
+            RCLCPP_DEBUG(node->get_logger(), "Received PnP poses message with %zu poses", msg->poses.size());
             
             if (msg->poses.empty()) {
                 RCLCPP_WARN(node->get_logger(), "Received empty PnP poses message. Skipping.");
@@ -294,7 +295,7 @@ int main(int argc, char * argv[]) {
                 // Separately collect raw roll angles (no ×5) for /pnp_roll_angles_each
                 roll_angles_raw.push_back(z_rotation.roll_angle_raw);
                 
-                RCLCPP_INFO(node->get_logger(),
+                RCLCPP_DEBUG(node->get_logger(),
                            "Pose %zu - Z-axis rotation: %.6f",
                            i,
                            z_rotation.roll_angle);
@@ -323,8 +324,14 @@ int main(int argc, char * argv[]) {
                 selected_pose_arr.header = msg->header;
                 selected_pose_arr.poses.push_back(msg->poses[selected_index]);
                 selected_pose_publisher->publish(selected_pose_arr);
-                RCLCPP_INFO(node->get_logger(), "Published selected pose (index=%d) to /pnp_poses_selected_a",
-                            selected_index);
+                if (!logged_first_fitting_success) {
+                    RCLCPP_INFO(node->get_logger(), "Fitting first success: published selected pose (index=%d) to /pnp_poses_selected_a",
+                                selected_index);
+                    logged_first_fitting_success = true;
+                } else {
+                    RCLCPP_DEBUG(node->get_logger(), "Published selected pose (index=%d) to /pnp_poses_selected_a",
+                                 selected_index);
+                }
             }
 
             // 同步发布带采集时间戳的话题（透传上游图像采集时刻）
