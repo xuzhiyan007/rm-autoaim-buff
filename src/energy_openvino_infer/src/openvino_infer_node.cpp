@@ -2,8 +2,6 @@
 #include <openvino/core/preprocess/pre_post_process.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn/dnn.hpp>
-#include <opencv2/features2d.hpp>
-#include <opencv2/calib3d.hpp>
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -21,56 +19,22 @@
 #else
 #include <cv_bridge/cv_bridge.hpp>
 #endif
-#include <future>  // for std::async
-#include <yaml-cpp/yaml.h>
 #include "rclcpp_components/register_node_macro.hpp"
 
 
-// Default — template matching ON, R refine ON, visualization OFF
+// Default — R refine ON, visualization OFF
 //ros2 run openvino_infer openvino_infer_node --ros-args -p enable_visualization:=true
-
-//Disable template matching
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false
 
 //Disable R refine
 //ros2 run openvino_infer openvino_infer_node --ros-args -p enable_r_refine:=false
 
 //Combine with visualization
-//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_template_matching:=false -p enable_r_refine:=false -p enable_visualization:=true
+//ros2 run openvino_infer openvino_infer_node --ros-args -p enable_r_refine:=false -p enable_visualization:=true
 
 struct Keypoint {
     float x;
     float y;
     float visibility;
-};
-
-struct TemplateData {
-    cv::Mat descriptors;
-    std::vector<cv::KeyPoint> keypoints;
-    std::vector<cv::Point2f> specific_pts;
-    int min_matches;
-    float ratio_test;
-    cv::Ptr<cv::DescriptorMatcher> matcher; // 使用基类类型，支持 FLANN 和 BFMatcher
-};
-
-struct SiftParams {
-    int nfeatures = 0;
-    int nOctaveLayers = 3;
-    double contrastThreshold = 0.01;
-    double edgeThreshold = 30.0;
-    double sigma = 1.6;
-};
-
-struct TemplateConfig {
-    std::vector<cv::Point2f> specific_pts;
-    SiftParams sift;
-    int min_matches = 4;
-    float ratio_test = 0.7f;
-};
-
-struct HomographyConfig {
-    float ransac_threshold = 5.0f;
-    float margin_ratio = 0.1f;
 };
 
 class OpenVINOInferenceNode : public rclcpp::Node
@@ -110,7 +74,6 @@ private:
 #else
         this->declare_parameter("model_path", "~/infantry/src/energy_openvino_infer/models/best.xml");
 #endif
-        this->declare_parameter("template_circle_path", "~/infantry/src/energy_openvino_infer/template/template_circle.png");
         this->declare_parameter("input_topic", "/image_raw");
         this->declare_parameter("output_topic", "/detections");
         this->declare_parameter("keypoints_topic", "/ene_detection_keypoints");
@@ -122,16 +85,10 @@ private:
         this->declare_parameter("num_threads", 4);
         this->declare_parameter("class_names", std::vector<std::string>{});
         this->declare_parameter("enable_visualization", true);
-        this->declare_parameter("enable_template_matching", true);
         this->declare_parameter("performance_mode", std::string("latency"));  // latency / throughput / cumulative_throughput  低延时/高吞吐/积累吞吐
-        this->declare_parameter("template_circle_scale", 0.5);
-        this->declare_parameter("template_circle_roi_scale", 0.5);
-        this->declare_parameter("template_channel_mode", "red"); //gray, red,  blue
         this->declare_parameter("kp0_hold_max_pixel_dist", 30.0);  // kp[0]补帧阈値：圆形关键点平均偏移上限（像素）
         this->declare_parameter("enable_kp0_hold", true);            // 是否开启 kp[0] 补帧策略
         this->declare_parameter("enable_mode_gate", false);           // 是否启用 /robot_mode 门控
-        this->declare_parameter("roi_expand_ratio", 8.0 / 3.0);     // R/Circle ROI 扩展倍数（base_box → expanded_roi）
-        this->declare_parameter("r_roi_base_ratio", 3.0 / 5.0);     // R base box 相对圆形包围盒（c_base_box）的宽高比例
         this->declare_parameter("r_detect_threshold", 27);            // R 红色通道二值化阈值
         this->declare_parameter("r_detect_radius_ratio", 1.1);        // R Mask 半径比例（相对 kp4-kp2 距离）
         this->declare_parameter("r_detect_extend_ratio", 2.4);        // R 圆心粗估计延伸倍数
@@ -141,7 +98,6 @@ private:
 
         // 获取参数并展开路径
         model_path_ = expandPath(this->get_parameter("model_path").as_string());
-        std::string template_circle_path = expandPath(this->get_parameter("template_circle_path").as_string());
         input_topic_ = this->get_parameter("input_topic").as_string();
         output_topic_ = this->get_parameter("output_topic").as_string();
         keypoints_topic_ = this->get_parameter("keypoints_topic").as_string();
@@ -153,60 +109,16 @@ private:
         num_threads_ = this->get_parameter("num_threads").as_int();
         class_names_ = this->get_parameter("class_names").as_string_array();
         enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
-        enable_template_matching_ = this->get_parameter("enable_template_matching").as_bool();
         performance_mode_ = this->get_parameter("performance_mode").as_string();
-        template_circle_scale_ = static_cast<float>(this->get_parameter("template_circle_scale").as_double());
-        template_circle_roi_scale_ = static_cast<float>(this->get_parameter("template_circle_roi_scale").as_double());
-        template_channel_mode_ = this->get_parameter("template_channel_mode").as_string();
         kp0_hold_max_pixel_dist_ = static_cast<float>(this->get_parameter("kp0_hold_max_pixel_dist").as_double());
         enable_kp0_hold_ = this->get_parameter("enable_kp0_hold").as_bool();
         enable_mode_gate_ = this->get_parameter("enable_mode_gate").as_bool();
-        roi_expand_ratio_ = static_cast<float>(this->get_parameter("roi_expand_ratio").as_double());
-        r_roi_base_ratio_ = static_cast<float>(this->get_parameter("r_roi_base_ratio").as_double());
         r_detect_threshold_ = this->get_parameter("r_detect_threshold").as_int();
         r_detect_radius_ratio_ = static_cast<float>(this->get_parameter("r_detect_radius_ratio").as_double());
         r_detect_extend_ratio_ = static_cast<float>(this->get_parameter("r_detect_extend_ratio").as_double());
         r_detect_dilate_kernel_ = this->get_parameter("r_detect_dilate_kernel").as_int();
         enable_r_refine_ = this->get_parameter("enable_r_refine").as_bool();
         r_refine_max_dev_ratio_ = static_cast<float>(this->get_parameter("r_refine_max_dev_ratio").as_double());
-        this->declare_parameter("sift_params_path", "~/infantry/src/energy_openvino_infer/config/SIFT_params.yaml");
-        std::string sift_params_path = expandPath(this->get_parameter("sift_params_path").as_string());
-        load_sift_params(sift_params_path);
-
-        // Circle 模板初始化专用 SIFT
-        auto sift_c_tmpl = cv::SIFT::create(
-            circle_cfg_.sift.nfeatures,
-            circle_cfg_.sift.nOctaveLayers,
-            circle_cfg_.sift.contrastThreshold,
-            circle_cfg_.sift.edgeThreshold,
-            circle_cfg_.sift.sigma
-        );
-
-        RCLCPP_INFO(this->get_logger(), "Circle template path: %s", template_circle_path.c_str());
-
-        cv::Mat img_c = cv::imread(template_circle_path, cv::IMREAD_COLOR);
-        if (!img_c.empty()) {
-            cv::cvtColor(img_c, img_c, cv::COLOR_BGR2RGB);  // imread 返回 BGR，统一转为 RGB 与运行时一致
-            cv::Mat img_c_channel;
-            extract_channel(img_c, img_c_channel);
-            cv::Mat img_c_small;
-            cv::resize(img_c_channel, img_c_small, cv::Size(), template_circle_scale_, template_circle_scale_, cv::INTER_LINEAR);
-            sift_c_tmpl->detectAndCompute(img_c_small, cv::noArray(), circle_td_.keypoints, circle_td_.descriptors);
-            std::vector<cv::Point2f> c_pts_scaled;
-            for (const auto& pt : circle_cfg_.specific_pts) {
-                c_pts_scaled.emplace_back(pt.x * template_circle_scale_, pt.y * template_circle_scale_);
-            }
-            circle_td_.specific_pts = std::move(c_pts_scaled);
-            circle_td_.min_matches = circle_cfg_.min_matches;
-            circle_td_.ratio_test = circle_cfg_.ratio_test;
-            // 优化：使用 BFMatcher 替代 FLANN（ROI特征点少时更快）
-            circle_td_.matcher = cv::makePtr<cv::BFMatcher>(cv::NORM_L2, false);
-            circle_td_.matcher->add({circle_td_.descriptors});
-            // BFMatcher 无需 train()，直接使用
-            RCLCPP_INFO(this->get_logger(), "Circle template loaded and BFMatcher initialized successfully");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to read template_circle.png from: %s", template_circle_path.c_str());
-        }
 
         auto qos_profile = rclcpp::SensorDataQoS();
         qos_profile.reliability(rclcpp::ReliabilityPolicy::BestEffort);
@@ -229,7 +141,6 @@ private:
         RCLCPP_INFO(this->get_logger(), "Model path: %s", model_path_.c_str());
         RCLCPP_INFO(this->get_logger(), "Input topic: %s", input_topic_.c_str());
         RCLCPP_INFO(this->get_logger(), "Keypoints topic: %s", keypoints_topic_.c_str());
-        RCLCPP_INFO(this->get_logger(), "Template matching: %s", enable_template_matching_ ? "enabled" : "disabled");
     }
 
     // 路径展开函数：支持 ~、环境变量、相对路径
@@ -489,141 +400,14 @@ private:
 
                     cv::Rect box = boxes[idx] & cv::Rect(0, 0, image.cols, image.rows);
 
-                    cv::Rect c_expanded_roi; bool has_c_roi = false;
-
-                    // 辅助 lambda：将 base_box 扩大后提取灰度并按指定 scale 缩放
-                    auto expand_and_extract = [&](const cv::Rect& base_box, cv::Mat& out_roi_gray_small, cv::Rect& out_expanded_roi, float roi_scale) -> bool {
-                        int expand_width = (int)(base_box.width * roi_expand_ratio_);
-                        int expand_height = (int)(base_box.height * roi_expand_ratio_);
-                        int expand_x = base_box.x - (expand_width - base_box.width) / 2;
-                        int expand_y = base_box.y - (expand_height - base_box.height) / 2;
-
-                        expand_x = std::max(0, std::min(expand_x, image.cols - expand_width));
-                        expand_y = std::max(0, std::min(expand_y, image.rows - expand_height));
-                        expand_width = std::min(expand_width, image.cols - expand_x);
-                        expand_height = std::min(expand_height, image.rows - expand_y);
-
-                        if (expand_width <= 0 || expand_height <= 0) return false;
-                        out_expanded_roi = cv::Rect(expand_x, expand_y, expand_width, expand_height);
-
-                        cv::Mat roi_channel;
-                        extract_channel(image(out_expanded_roi), roi_channel);
-                        cv::resize(roi_channel, out_roi_gray_small, cv::Size(), roi_scale, roi_scale, cv::INTER_LINEAR);
-                        return true;
-                    };
-
-                    // 先计算关键点 2-5 的包围盒（供 Circle ROI 共用）
-                    cv::Rect c_base_box;
-                    bool has_c_base = false;
-                    if (all_keypoints[idx].size() >= 6) {
-                        float min_x = static_cast<float>(image.cols);
-                        float max_x = 0.0f;
-                        float min_y = static_cast<float>(image.rows);
-                        float max_y = 0.0f;
-                        for (int k = 2; k <= 5; ++k) {
-                            if (all_keypoints[idx][k].visibility > 0.5f) {
-                                min_x = std::min(min_x, all_keypoints[idx][k].x);
-                                max_x = std::max(max_x, all_keypoints[idx][k].x);
-                                min_y = std::min(min_y, all_keypoints[idx][k].y);
-                                max_y = std::max(max_y, all_keypoints[idx][k].y);
-                                has_c_base = true;
-                            }
-                        }
-                        if (has_c_base) {
-                            c_base_box = cv::Rect((int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y));
-                            c_base_box &= cv::Rect(0, 0, image.cols, image.rows);
-                        }
-                    }
-
-                    // 结构体：存储匹配结果
-                    struct MatchResult {
-                        bool success = false;
-                        bool has_roi = false;
-                        cv::Rect expanded_roi;
-                        std::vector<cv::Point2f> points;
-                    };
-
-                    // 并行处理 R 和 Circle 模板匹配
-                    // 在模板匹配前记录神经网络原始 kp[0] 检测状态，供补帧逻辑使用
+                    // 记录神经网络原始 kp[0] 检测状态，供补帧逻辑使用
                     const bool nn_kp0_detected = (all_keypoints[idx].size() > 0 &&
                                                   all_keypoints[idx][0].visibility > 0.5f);
-                    if (enable_template_matching_) {
-                    auto c_future = std::async(std::launch::async, [&]() -> MatchResult {
-                        MatchResult res;
-                        if (has_c_base && c_base_box.width > 0 && c_base_box.height > 0) {
-                            cv::Mat c_roi_gray_small;
-                            if (expand_and_extract(c_base_box, c_roi_gray_small, res.expanded_roi, template_circle_roi_scale_)) {
-                                res.has_roi = true;
-                                thread_local cv::Ptr<cv::SIFT> tl_sift_c = cv::SIFT::create(
-                                    roi_sift_cfg_.nfeatures,
-                                    roi_sift_cfg_.nOctaveLayers,
-                                    roi_sift_cfg_.contrastThreshold,
-                                    roi_sift_cfg_.edgeThreshold,
-                                    roi_sift_cfg_.sigma);
-                                if (match_template_local(c_roi_gray_small, circle_td_, res.points, tl_sift_c)) {
-                                    res.success = true;
-                                }
-                            }
-                        }
-                        return res;
-                    });
-
-                    // 等待任务完成并应用结果
-                    MatchResult c_result = c_future.get();
-
-                    // 应用 Circle 模板结果
-                    if (c_result.has_roi) {
-                        has_c_roi = true;
-                        c_expanded_roi = c_result.expanded_roi;
-                        if (c_result.success) {
-                            float max_dev = std::max(box.width, box.height) * 0.3f;
-                            std::vector<cv::Point2f> ordered_pts = c_result.points;
-
-                            // === 4 重对称歧义消除 ===
-                            if (all_keypoints[idx].size() >= 6 && c_result.points.size() == 4) {
-                                float best_err = std::numeric_limits<float>::max();
-                                int best_shift = 0;
-                                for (int shift = 0; shift < 4; ++shift) {
-                                    float err = 0.0f;
-                                    for (int i = 0; i < 4; ++i) {
-                                        int j = (i + shift) % 4;
-                                        float tx = c_result.points[j].x / template_circle_roi_scale_ + c_expanded_roi.x;
-                                        float ty = c_result.points[j].y / template_circle_roi_scale_ + c_expanded_roi.y;
-                                        float dx = all_keypoints[idx][i + 2].x - tx;
-                                        float dy = all_keypoints[idx][i + 2].y - ty;
-                                        err += dx * dx + dy * dy;
-                                    }
-                                    if (err < best_err) {
-                                        best_err = err;
-                                        best_shift = shift;
-                                    }
-                                }
-                                for (int i = 0; i < 4; ++i) {
-                                    ordered_pts[i] = c_result.points[(i + best_shift) % 4];
-                                }
-                            }
-                            // =========================
-
-                            for (size_t i = 0; i < ordered_pts.size() && i < 4; ++i) {
-                                float new_x = ordered_pts[i].x / template_circle_roi_scale_ + c_expanded_roi.x;
-                                float new_y = ordered_pts[i].y / template_circle_roi_scale_ + c_expanded_roi.y;
-                                // 偏差保护：若修正量超过检测框对角线的50%则丢弃
-                                float orig_x = all_keypoints[idx][i + 2].x;
-                                float orig_y = all_keypoints[idx][i + 2].y;
-                                float dx = new_x - orig_x, dy = new_y - orig_y;
-                                if (dx * dx + dy * dy < max_dev * max_dev) {
-                                    all_keypoints[idx][i + 2].x = new_x;
-                                    all_keypoints[idx][i + 2].y = new_y;
-                                }
-                            }
-                        }
-                    }
-                    } // end enable_template_matching_
 
                     // ── kp[0] 补帧逻辑 ───────────────────────────────────────
                     if (enable_kp0_hold_) {
                         auto& kp0 = all_keypoints[idx][0];
-                        bool kp0_detected = nn_kp0_detected;  // 使用神经网络原始检测结果，不受模板匹配影响
+                        bool kp0_detected = nn_kp0_detected;
                     
                         // 检查 kp[2-5] 是否全部被检测到
                         bool all_circle_detected = (all_keypoints[idx].size() >= 6);
@@ -735,7 +519,7 @@ private:
                             cv::putText(r_viz, "R", refined + cv::Point2f(8, -8),
                                        cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 0, 255), 1);
 
-                            cv::imshow("R Detection", r_viz);
+                            // cv::imshow("R Detection", r_viz);
                         }
                         // ─────────────────────────────────────────────────
                     }
@@ -746,19 +530,7 @@ private:
                     keypoints_msg.poses.push_back(separator);
 
 
-                    // 发布关键点：发布 Circle ROI 的特殊点，再发布其他关键点
-                    if (has_c_roi) {
-                        geometry_msgs::msg::Pose c_tl, c_br;
-                        c_tl.position.x = c_expanded_roi.x;
-                        c_tl.position.y = c_expanded_roi.y;
-                        c_tl.position.z = -2.0;
-                        c_br.position.x = c_expanded_roi.x + c_expanded_roi.width;
-                        c_br.position.y = c_expanded_roi.y + c_expanded_roi.height;
-                        c_br.position.z = -3.0;
-                        keypoints_msg.poses.push_back(c_tl);
-                        keypoints_msg.poses.push_back(c_br);
-                    }
-                    // 其他关键点：从 keypoints 0-5 发布，保持与 visualizer.cpp 中的顺序一致（0 是中心点，1-4 是四个角点，5 是额外点）
+                    // 发布关键点：从 keypoints 0-5 发布，保持与 visualizer.cpp 中的顺序一致（0 是中心点，1-4 是四个角点，5 是额外点）
 
 
                     for (size_t k = 0; k < all_keypoints[idx].size() && k < 6; k++) {
@@ -774,7 +546,7 @@ private:
                         }
                     }
                 }
-                auto t_sift = std::chrono::high_resolution_clock::now();
+                auto t_process = std::chrono::high_resolution_clock::now();
 
                 keypoints_pub_->publish(keypoints_msg);
                 auto t_pub = std::chrono::high_resolution_clock::now();
@@ -786,31 +558,31 @@ private:
                 auto ms_convert = std::chrono::duration_cast<std::chrono::microseconds>(t_convert - t_start).count() / 1000.0;
                 auto ms_infer   = std::chrono::duration_cast<std::chrono::microseconds>(t_infer   - t_convert).count() / 1000.0;
                 auto ms_nms     = std::chrono::duration_cast<std::chrono::microseconds>(t_nms     - t_infer).count() / 1000.0;
-                auto ms_sift    = std::chrono::duration_cast<std::chrono::microseconds>(t_sift    - t_nms).count() / 1000.0;
-                auto ms_pub     = std::chrono::duration_cast<std::chrono::microseconds>(t_pub     - t_sift).count() / 1000.0;
+                auto ms_process = std::chrono::duration_cast<std::chrono::microseconds>(t_process - t_nms).count() / 1000.0;
+                auto ms_pub     = std::chrono::duration_cast<std::chrono::microseconds>(t_pub     - t_process).count() / 1000.0;
                 auto ms_total   = std::chrono::duration_cast<std::chrono::microseconds>(t_pub     - t_start).count() / 1000.0;
 
-                // 更新 avg_sift_ms EMA（包含模板匹配+kp0补帧+消息组装）
-                perf_stats_.avg_sift_ms = 0.9 * perf_stats_.avg_sift_ms + 0.1 * ms_sift;
+                // 更新 avg_process_ms EMA（包含kp0补帧+R精检测+消息组装）
+                perf_stats_.avg_process_ms = 0.9 * perf_stats_.avg_process_ms + 0.1 * ms_process;
 
                 static bool logged_first_timing_success = false;
                 if (!logged_first_timing_success) {
                     RCLCPP_INFO(this->get_logger(),
 #ifdef USE_YOLO26
-                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process=%.2fms | pub=%.2fms | dets=%zu",
 #else
-                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing first success] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process=%.2fms | pub=%.2fms | dets=%zu",
 #endif
-                        ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
+                        ms_total, ms_convert, ms_infer, ms_nms, ms_process, ms_pub, indices.size());
                     logged_first_timing_success = true;
                 } else {
                     RCLCPP_DEBUG(this->get_logger(),
 #ifdef USE_YOLO26
-                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process=%.2fms | pub=%.2fms | dets=%zu",
 #else
-                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process(sift+msg)=%.2fms | pub=%.2fms | dets=%zu",
+                        "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process=%.2fms | pub=%.2fms | dets=%zu",
 #endif
-                        ms_total, ms_convert, ms_infer, ms_nms, ms_sift, ms_pub, indices.size());
+                        ms_total, ms_convert, ms_infer, ms_nms, ms_process, ms_pub, indices.size());
                 }
             } else {
                 auto t_end = std::chrono::high_resolution_clock::now();
@@ -821,9 +593,9 @@ private:
 
                 RCLCPP_DEBUG(this->get_logger(),
 #ifdef USE_YOLO26
-                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | sift=0.00ms | pub=0.00ms | dets=0",
+                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | topk=%.2fms | process=0.00ms | pub=0.00ms | dets=0",
 #else
-                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | sift=0.00ms | pub=0.00ms | dets=0",
+                    "[Timing] total=%.2fms | convert=%.2fms | infer=%.2fms | nms=%.2fms | process=0.00ms | pub=0.00ms | dets=0",
 #endif
                     ms_total, ms_convert, ms_infer, ms_nms);
             }
@@ -892,7 +664,7 @@ private:
                     }
                 }
 
-                cv::imshow("Detection Visualization", vis_image);
+                //cv::imshow("Detection Visualization", vis_image);
                 cv::waitKey(1);
             }
 
@@ -1088,14 +860,14 @@ private:
             // 每100帧输出一次性能统计
             if (perf_stats_.total_frames % 100 == 0) {
                 double total_avg = perf_stats_.avg_preprocess_ms + perf_stats_.avg_inference_ms + 
-                                 perf_stats_.avg_postprocess_ms + perf_stats_.avg_sift_ms;
+                                 perf_stats_.avg_postprocess_ms + perf_stats_.avg_process_ms;
                 RCLCPP_DEBUG(this->get_logger(),
-                    "Perf[frame=%ld] Preprocess=%.2fms Inference=%.2fms Postprocess=%.2fms SIFT=%.2fms Total=%.2fms FPS=%.1f",
+                    "Perf[frame=%ld] Preprocess=%.2fms Inference=%.2fms Postprocess=%.2fms Process=%.2fms Total=%.2fms FPS=%.1f",
                     perf_stats_.total_frames,
                     perf_stats_.avg_preprocess_ms,
                     perf_stats_.avg_inference_ms,
                     perf_stats_.avg_postprocess_ms,
-                    perf_stats_.avg_sift_ms,
+                    perf_stats_.avg_process_ms,
                     total_avg,
                     1000.0 / total_avg);
             }
@@ -1158,159 +930,12 @@ private:
         return r_center;
     }
 
-    void extract_channel(const cv::Mat& src, cv::Mat& dst) const
-    {
-        if (template_channel_mode_ == "red") {
-            std::vector<cv::Mat> ch;
-            cv::split(src, ch);
-            dst = ch[0];  // RGB[0] = 红色通道
-        } else if (template_channel_mode_ == "blue") {
-            std::vector<cv::Mat> ch;
-            cv::split(src, ch);
-            dst = ch[2];  // RGB[2] = 蓝色通道
-        } else {
-            // 默认 gray
-            cv::cvtColor(src, dst, cv::COLOR_RGB2GRAY);
-        }
-    }
-
-    bool match_template_local(const cv::Mat& roi, const TemplateData& td,
-                              std::vector<cv::Point2f>& out_pts,
-                              cv::Ptr<cv::SIFT> sift_roi) {
-        if (roi.empty() || td.descriptors.empty() || !td.matcher) return false;
-
-        std::vector<cv::KeyPoint> kp_roi;
-        cv::Mat des_roi;
-        sift_roi->detectAndCompute(roi, cv::noArray(), kp_roi, des_roi);
-        if (des_roi.empty()) return false;
-
-        // 使用预训练索引：ROI描述子作为query，模板索引已预建，无需每帧重建
-        std::vector<std::vector<cv::DMatch>> knn_matches;
-        td.matcher->knnMatch(des_roi, knn_matches, 2);
-
-        std::vector<cv::DMatch> good;
-        for (auto& m : knn_matches) {
-            if (m.size() >= 2 && m[0].distance < td.ratio_test * m[1].distance) good.push_back(m[0]);
-        }
-
-        if (good.size() >= (size_t)td.min_matches) {
-            std::vector<cv::Point2f> p1, p2;
-            for (auto& m : good) {
-                // query=des_roi → queryIdx; train=template → trainIdx
-                p1.push_back(td.keypoints[m.trainIdx].pt);
-                p2.push_back(kp_roi[m.queryIdx].pt);
-            }
-            cv::Mat H = cv::findHomography(p1, p2, cv::RANSAC, homo_cfg_.ransac_threshold);
-            if (!H.empty()) {
-                std::vector<cv::Point2f> candidate_pts;
-                cv::perspectiveTransform(td.specific_pts, candidate_pts, H);
-
-                // 验证：输出点必须在 ROI 范围内（允许margin_ratio边距），防止单应性矩阵失真导致点飞出
-                const float margin = std::max(roi.cols, roi.rows) * homo_cfg_.margin_ratio;
-                bool valid = true;
-                for (const auto& pt : candidate_pts) {
-                    if (pt.x < -margin || pt.x > roi.cols + margin ||
-                        pt.y < -margin || pt.y > roi.rows + margin) {
-                        valid = false;
-                        break;
-                    }
-                }
-                if (valid) {
-                    out_pts = candidate_pts;
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    bool load_sift_params(const std::string& path)
-    {
-        auto safe_int = [](const YAML::Node& n, int def) -> int {
-            return n ? n.as<int>(def) : def;
-        };
-        auto safe_double = [](const YAML::Node& n, double def) -> double {
-            return n ? n.as<double>(def) : def;
-        };
-        auto safe_float = [](const YAML::Node& n, float def) -> float {
-            return n ? n.as<float>(def) : def;
-        };
-
-        try {
-            YAML::Node config = YAML::LoadFile(path);
-
-            // Circle template
-            auto c_node = config["circle_template"];
-            if (c_node["specific_pts"]) {
-                for (const auto& pt : c_node["specific_pts"]) {
-                    if (pt.IsSequence() && pt.size() >= 2) {
-                        circle_cfg_.specific_pts.emplace_back(
-                            safe_float(pt[0], 0.0f), safe_float(pt[1], 0.0f));
-                    }
-                }
-            }
-            if (c_node["sift"]) {
-                auto s = c_node["sift"];
-                circle_cfg_.sift.nfeatures = safe_int(s["nfeatures"], 0);
-                circle_cfg_.sift.nOctaveLayers = safe_int(s["nOctaveLayers"], 3);
-                circle_cfg_.sift.contrastThreshold = safe_double(s["contrastThreshold"], 0.01);
-                circle_cfg_.sift.edgeThreshold = safe_double(s["edgeThreshold"], 30.0);
-                circle_cfg_.sift.sigma = safe_double(s["sigma"], 1.2);
-            }
-            circle_cfg_.min_matches = safe_int(c_node["min_matches"], 10);
-            circle_cfg_.ratio_test = safe_float(c_node["ratio_test"], 0.7f);
-
-            // ROI detector
-            auto roi_node = config["roi_detector"]["sift"];
-            if (roi_node) {
-                roi_sift_cfg_.nfeatures = safe_int(roi_node["nfeatures"], 0);
-                roi_sift_cfg_.nOctaveLayers = safe_int(roi_node["nOctaveLayers"], 3);
-                roi_sift_cfg_.contrastThreshold = safe_double(roi_node["contrastThreshold"], 0.01);
-                roi_sift_cfg_.edgeThreshold = safe_double(roi_node["edgeThreshold"], 30.0);
-                roi_sift_cfg_.sigma = safe_double(roi_node["sigma"], 1.2);
-            }
-
-            // Homography
-            auto h_node = config["homography"];
-            homo_cfg_.ransac_threshold = safe_float(h_node["ransac_threshold"], 5.0f);
-            homo_cfg_.margin_ratio = safe_float(h_node["margin_ratio"], 0.1f);
-
-            RCLCPP_INFO(this->get_logger(), "SIFT params loaded from: %s", path.c_str());
-            return true;
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(this->get_logger(), "Failed to load SIFT params from %s: %s. Using hardcoded defaults.", path.c_str(), e.what());
-            // Fallback defaults to match original behavior
-            circle_cfg_.specific_pts = {
-                cv::Point2f(40.0f, 103.0f), cv::Point2f(18.0f, 33.0f),
-                cv::Point2f(89.0f, 15.0f), cv::Point2f(110.0f, 85.0f)
-            };
-            circle_cfg_.min_matches = 10;
-            circle_cfg_.ratio_test = 0.7f;
-            circle_cfg_.sift.edgeThreshold = 30.0;
-            circle_cfg_.sift.sigma = 1.2;
-
-            roi_sift_cfg_.edgeThreshold = 30.0;
-            roi_sift_cfg_.sigma = 1.2;
-
-            homo_cfg_.ransac_threshold = 5.0f;
-            homo_cfg_.margin_ratio = 0.1f;
-            return false;
-        }
-    }
-
 private:
     ov::Core core;
     ov::CompiledModel compiled_model;
     ov::InferRequest infer_request;
     std::string input_name;
     std::string output_name;
-
-
-    TemplateData circle_td_;
-
-    TemplateConfig circle_cfg_;
-    SiftParams roi_sift_cfg_;
-    HomographyConfig homo_cfg_;
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr keypoints_pub_;
@@ -1331,7 +956,6 @@ private:
     int num_threads_;
     std::vector<std::string> class_names_;
     bool enable_visualization_;
-    bool enable_template_matching_;
     std::string performance_mode_;
 
     // kp[0] 补帧状态
@@ -1344,18 +968,12 @@ private:
     float kp0_hold_max_pixel_dist_ = 30.0f;
     bool enable_kp0_hold_ = true;
     bool enable_mode_gate_ = true;
-    float roi_expand_ratio_ = 8.0f / 3.0f;  // R/Circle ROI 扩展倍数
-    float r_roi_base_ratio_ = 3.0f / 5.0f;  // R base box 相对圆形包围盒的比例
     int   r_detect_threshold_ = 17;          // R 红色通道二值化阈值
     float r_detect_radius_ratio_ = 0.6f;     // R Mask 半径比例
     float r_detect_extend_ratio_ = 3.1f;     // R 圆心粗估计延伸倍数
     int   r_detect_dilate_kernel_ = 5;       // R 膨胀核大小
     bool  enable_r_refine_ = true;            // 是否开启 kp[0] 红色通道精检测修正
     float r_refine_max_dev_ratio_ = 0.5f;     // kp[0] 精检测偏差保护比例
-
-    float template_circle_scale_;
-    float template_circle_roi_scale_;
-    std::string template_channel_mode_;
 
     // 预分配的图像缓冲区
     cv::Mat letterboxed_image_;                  // 预分配的letterbox图像 (uint8, 640x640)
@@ -1371,7 +989,7 @@ private:
         double avg_preprocess_ms = 0;
         double avg_inference_ms = 0;
         double avg_postprocess_ms = 0;
-        double avg_sift_ms = 0;
+        double avg_process_ms = 0;
     } perf_stats_;
 };
 
