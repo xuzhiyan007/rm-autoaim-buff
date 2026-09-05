@@ -106,13 +106,6 @@ LifecycleArmorDetector::LifecycleArmorDetector(const rclcpp::NodeOptions& option
     final_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/detector/final_img", 10);
   }
   if(use_record_)recorder_ = std::make_shared<tools::Recorder>();
-
-  // /robot_mode 门控订阅
-  mode_sub_ = this->create_subscription<std_msgs::msg::UInt8>(
-      "/robot_mode", rclcpp::SensorDataQoS(),
-      [this](std_msgs::msg::UInt8::SharedPtr msg) {
-        robot_mode_.store(msg->data);
-      });
   // jointState_status_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states",rclcpp::SensorDataQoS(),
   // [this](sensor_msgs::msg::JointState::SharedPtr msg) { pitch_o = msg->position[0];yaw_o = msg->position[1];});
 }
@@ -137,10 +130,8 @@ void LifecycleArmorDetector::set_mode_callback(const jlcv_interfaces::srv::SetMo
 
 void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr img_msg)
 {
-  if(robot_mode_.load() != 2)  // 仅在 ARMOR 模式（2）下处理
+  if(1)//Mode == jlcv_interfaces::srv::SetMode::Request::ARMOR)
   {
-    return;
-  }
     t_ = img_msg->header.stamp;
     armors_msg_.header = img_msg->header;
     armors_msg_.armors.clear();
@@ -181,9 +172,9 @@ void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr im
 
     auto armors = detectArmors(std::move(img_msg));
 
-
     for (const auto& armor : armors)
     {
+
       jlcv_interfaces::msg::Armor armor_msg;
       armor_msg.type = armor.type == ArmorType::SMALL  ? 1 : 0;
       armor_msg.number = armor.label_id;
@@ -201,6 +192,10 @@ void LifecycleArmorDetector::ImageCallback(sensor_msgs::msg::Image::UniquePtr im
     }
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
+
+    }else{
+    return ;
+  }
 }
 
 std::unique_ptr<Detector> LifecycleArmorDetector::initDetector(uint8_t outpost_status)
